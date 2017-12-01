@@ -4,7 +4,6 @@ use Model;
 
 class Post extends Model
 {
-
     /**
      * @var string The database table used by the model.
      */
@@ -27,11 +26,34 @@ class Post extends Model
         'author' => 'Database\Tester\Models\Author',
     ];
 
+    public $morphMany = [
+        'event_log' => ['Database\Tester\Models\EventLog', 'name' => 'related', 'delete' => true, 'softDelete' => true],
+    ];
+
+    public $morphOne = [
+        'meta' => ['Database\Tester\Models\Meta', 'name' => 'taggable'],
+    ];
+}
+
+class NullablePost extends Post
+{
+    use \October\Rain\Database\Traits\Nullable;
+
+    /**
+     * @var array Guarded fields
+     */
+    protected $guarded = [];
+
+    /**
+     * @var array List of attributes to nullify
+     */
+    protected $nullable = [
+        'author_nickname',
+    ];
 }
 
 class SluggablePost extends Post
 {
-
     use \October\Rain\Database\Traits\Sluggable;
 
     /**
@@ -43,16 +65,16 @@ class SluggablePost extends Post
      * @var array List of attributes to automatically generate unique URL names (slugs) for.
      */
     protected $slugs = [
-        'slug' => 'title'
+        'slug' => 'title',
+        'long_slug' => ['title', 'description']
     ];
 
 }
 
 class RevisionablePost extends Post
 {
-
     use \October\Rain\Database\Traits\Revisionable;
-    use \October\Rain\Database\Traits\SoftDeleting;
+    use \October\Rain\Database\Traits\SoftDelete;
 
     /**
      * @var array Guarded fields
@@ -96,4 +118,19 @@ class RevisionablePost extends Post
         return 7;
     }
 
+}
+
+class ValidationPost extends Post
+{
+    use \October\Rain\Database\Traits\Validation;
+
+    /**
+     * @var array Guarded fields
+     */
+    protected $guarded = [];
+
+    public $rules = [
+        'title' => 'required|min:3|max:255',
+        'slug' => ['required', 'regex:/^[a-z0-9\/\:_\-\*\[\]\+\?\|]*$/i', 'unique:database_tester_posts'],
+    ];
 }

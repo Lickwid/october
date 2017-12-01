@@ -21,17 +21,31 @@ use Exception;
  */
 class RequestLogs extends Controller
 {
+    /**
+     * @var array Extensions implemented by this controller.
+     */
     public $implement = [
-        'Backend.Behaviors.FormController',
-        'Backend.Behaviors.ListController'
+        \Backend\Behaviors\FormController::class,
+        \Backend\Behaviors\ListController::class
     ];
-
-    public $requiredPermissions = ['system.access_logs'];
-
+    /**
+     * @var array `FormController` configuration.
+     */
     public $formConfig = 'config_form.yaml';
 
+    /**
+     * @var array `ListController` configuration.
+     */
     public $listConfig = 'config_list.yaml';
 
+    /**
+     * @var array Permissions required to view this page.
+     */
+    public $requiredPermissions = ['system.access_logs'];
+
+    /**
+     * Constructor.
+     */
     public function __construct()
     {
         parent::__construct();
@@ -40,7 +54,12 @@ class RequestLogs extends Controller
         SettingsManager::setContext('October.System', 'request_logs');
     }
 
-    public function onEmptyLog()
+    public function index_onRefresh()
+    {
+        return $this->listRefresh();
+    }
+
+    public function index_onEmptyLog()
     {
         RequestLog::truncate();
         Flash::success(Lang::get('system::lang.request_log.empty_success'));

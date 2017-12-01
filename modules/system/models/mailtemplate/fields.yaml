@@ -32,11 +32,14 @@ secondaryTabs:
     fields:
 
         content_html:
-            type: richeditor
-            size: huge
+            type: markdown
+            size: giant
             tab: system::lang.mail_templates.content_html
+            safe: true
+            stretch: true
 
         content_text:
             type: textarea
-            size: huge
+            size: giant
             tab: system::lang.mail_templates.content_text
+            stretch: true

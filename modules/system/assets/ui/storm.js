@@ -18,19 +18,28 @@
 =require vendor/select2/js/select2.full.js
 =require vendor/mousewheel/mousewheel.js
 =require vendor/sortable/jquery-sortable.js
+=require vendor/moment/moment.js
+=require vendor/moment/moment-timezone-with-data.js
+=require vendor/pikaday/js/pikaday.js
+=require vendor/pikaday/js/pikaday.jquery.js
+=require vendor/clockpicker/js/jquery-clockpicker.js
 
 =require js/foundation.baseclass.js
 =require js/foundation.element.js
 =require js/foundation.event.js
 =require js/foundation.controlutils.js
 =require js/flashmessage.js
+=require js/autocomplete.js
 =require js/checkbox.js
 =require js/checkbox.balloon.js
 =require js/dropdown.js
 =require js/callout.js
+=require js/datepicker.js
 =require js/tooltip.js
 =require js/toolbar.js
 =require js/filter.js
+=require js/filter.dates.js
+=require js/filter.numbers.js
 =require js/select.js
 =require js/loader.base.js
 =require js/loader.cursor.js
@@ -68,6 +77,7 @@
 =require js/inspector.editor.objectlist.js
 =require js/inspector.editor.object.js
 =require js/inspector.editor.stringlist.js
+=require js/inspector.editor.stringlistautocomplete.js
 =require js/inspector.editor.dictionary.js
 =require js/inspector.editor.autocomplete.js
 =require js/inspector.helpers.js
@@ -80,4 +90,5 @@
 =require js/inspector.validator.float.js
 =require js/inspector.validator.length.js
 =require js/inspector.externalparametereditor.js
+=require js/list.sortable.js
 */

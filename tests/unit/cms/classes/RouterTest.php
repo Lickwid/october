@@ -7,8 +7,10 @@ class RouterTest extends TestCase
 {
     protected static $theme = null;
 
-    public static function setUpBeforeClass()
+    public function setUp()
     {
+        parent::setUp();
+
         self::$theme = Theme::load('test');
     }
 
@@ -105,7 +107,7 @@ class RouterTest extends TestCase
         $this->assertArrayHasKey('url_title', $parameters);
         $this->assertEquals('my-post-title', $parameters['url_title']);
 
-        // Test cached 
+        // Test cached
         $page = $router->findByUrl('blog/post/my-post-title');
         $parameters = $router->getParameters();
         $this->assertNotEmpty($page);

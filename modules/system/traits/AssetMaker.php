@@ -2,10 +2,9 @@
 
 use Url;
 use Html;
-use File;
-use System\Models\Parameters;
+use System\Models\Parameter;
 use System\Models\PluginVersion;
-use SystemException;
+use System\Classes\CombineAssets;
 
 /**
  * Asset Maker Trait
@@ -14,7 +13,6 @@ use SystemException;
  * @package october\system
  * @author Alexey Bobkov, Samuel Georges
  */
-
 trait AssetMaker
 {
 
@@ -29,7 +27,18 @@ trait AssetMaker
     public $assetPath;
 
     /**
-     * Outputs <link> and <script> tags to load assets previously added with addJs and addCss method calls
+     * Disables the use, and subequent broadcast, of assets. This is useful
+     * to call during an AJAX request to speed things up. This method works
+     * by specifically targeting the hasAssetsDefined method.
+     * @return void
+     */
+    public function flushAssets()
+    {
+        $this->assets = ['js'=>[], 'css'=>[], 'rss'=>[]];
+    }
+
+    /**
+     * Outputs `<link>` and `<script>` tags to load assets previously added with addJs and addCss method calls
      * @param string $type Return an asset collection of a given type (css, rss, js) or null for all.
      * @return string
      */
@@ -94,7 +103,7 @@ trait AssetMaker
     }
 
     /**
-     * Adds JavaScript asset to the asset list. Call $this->makeAssets() in a view 
+     * Adds JavaScript asset to the asset list. Call $this->makeAssets() in a view
      * to output corresponding markup.
      * @param string $name Specifies a path (URL) to the script.
      * @param array $attributes Adds extra HTML attributes to the asset link.
@@ -102,6 +111,10 @@ trait AssetMaker
      */
     public function addJs($name, $attributes = [])
     {
+        if (is_array($name)) {
+            $name = $this->combineAssets($name);
+        }
+
         $jsPath = $this->getAssetPath($name);
 
         if (isset($this->controller)) {
@@ -128,6 +141,10 @@ trait AssetMaker
      */
     public function addCss($name, $attributes = [])
     {
+        if (is_array($name)) {
+            $name = $this->combineAssets($name);
+        }
+
         $cssPath = $this->getAssetPath($name);
 
         if (isset($this->controller)) {
@@ -172,6 +189,22 @@ trait AssetMaker
     }
 
     /**
+     * Run the provided assets through the Asset Combiner
+     * @param array $assets Collection of assets
+     * @param string $localPath Prefix all assets with this path (optional)
+     * @return string
+     */
+    public function combineAssets(array $assets, $localPath = '')
+    {
+        // Short circuit if no assets actually provided
+	    if (empty($assets)) {
+		    return '';
+        }
+        $assetPath = !empty($localPath) ? $localPath : $this->assetPath;
+        return Url::to(CombineAssets::combine($assets, $assetPath));
+    }
+
+    /**
      * Returns an array of all registered asset paths.
      * @return array
      */
@@ -200,7 +233,7 @@ trait AssetMaker
      */
     public function getAssetPath($fileName, $assetPath = null)
     {
-        if (preg_match("/(\/\/|http|https)/", $fileName)) {
+        if (starts_with($fileName, ['//', 'http://', 'https://'])) {
             return $fileName;
         }
 
@@ -236,7 +269,7 @@ trait AssetMaker
             $build = $asset['attributes']['build'];
 
             if ($build == 'core') {
-                $build = 'v' . Parameters::get('system::core.build', 1);
+                $build = 'v' . Parameter::get('system::core.build', 1);
             }
             elseif ($pluginVersion = PluginVersion::getVersion($build)) {
                 $build = 'v' . $pluginVersion;
@@ -255,7 +288,7 @@ trait AssetMaker
      */
     protected function getAssetScheme($asset)
     {
-        if (preg_match("/(\/\/|http|https)/", $asset)) {
+        if (starts_with($asset, ['//', 'http://', 'https://'])) {
             return $asset;
         }
 

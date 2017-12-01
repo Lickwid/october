@@ -1,7 +1,7 @@
 <?php namespace System\Models;
 
+use Url;
 use Config;
-use Request;
 use October\Rain\Database\Attach\File as FileBase;
 
 /**
@@ -22,7 +22,7 @@ class File extends FileBase
      */
     protected function getLocalRootPath()
     {
-        return Config::get('filesystems.disks.local.root', storage_path().'/app');
+        return Config::get('filesystems.disks.local.root', storage_path('app'));
     }
 
     /**
@@ -32,18 +32,16 @@ class File extends FileBase
     {
         $uploadsPath = Config::get('cms.storage.uploads.path', '/storage/app/uploads');
 
-        if (!preg_match("/(\/\/|http|https)/", $uploadsPath)) {
-            $uploadsPath = Request::getBasePath() . $uploadsPath;
-        }
-
         if ($this->isPublic()) {
-            return $uploadsPath . '/public/';
+            $uploadsPath .= '/public';
         }
         else {
-            return $uploadsPath . '/protected/';
+            $uploadsPath .= '/protected';
         }
+
+        return Url::asset($uploadsPath) . '/';
     }
-    
+
     /**
      * Define the internal storage path.
      */

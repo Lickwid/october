@@ -162,6 +162,28 @@ AssetManager = function() {
 assetManager = new AssetManager();
 
 /*
+ * String escape
+ */
+if ($.oc === undefined)
+    $.oc = {}
+
+$.oc.escapeHtmlString = function(string) {
+    var htmlEscapes = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#x27;',
+            '/': '&#x2F;'
+        },
+        htmlEscaper = /[&<>"'\/]/g
+
+    return ('' + string).replace(htmlEscaper, function(match) {
+        return htmlEscapes[match];
+    })
+}
+
+/*
  * Inverse Click Event (not used)
  *
  * Calls the handler function if the user has clicked outside the object 
@@ -186,26 +208,31 @@ $.fn.extend({
     }
 })
 */
+
 /*
- * String escape (not used)
+ * Browser Fixes
+ * - If another fix using JS is necessary, move this logic to backend.fixes.js
  */
+
 /*
-if ($.oc === undefined)
-    $.oc = {}
-
-$.oc.escapeHtmlString = function(string) {
-    var htmlEscapes = {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#x27;',
-            '/': '&#x2F;'
-        },
-        htmlEscaper = /[&<>"'\/]/g
-
-    return ('' + string).replace(htmlEscaper, function(match) {
-        return htmlEscapes[match];
+ * Internet Explorer v11
+ * - IE11 will not honor height 100% when overflow is used on the Y axis.
+ */
+if (!!window.MSInputMethodContext && !!document.documentMode) {
+    $(window).on('resize', function() {
+        fixMediaManager()
+        fixSidebar()
     })
+
+    function fixMediaManager() {
+        var $el = $('div[data-control="media-manager"] .control-scrollpad')
+        $el.height($el.parent().height())
+    }
+
+    function fixSidebar() {
+        $('#layout-sidenav').height(Math.max(
+            $('#layout-body').innerHeight(),
+            $(window).height() - $('#layout-mainmenu').height()
+        ))
+    }
 }
-*/

@@ -1,19 +1,17 @@
 <?php namespace Backend\FormWidgets;
 
 use Str;
-use Lang;
 use Input;
 use Request;
 use Response;
 use Validator;
-use System\Models\File;
-use ApplicationException;
 use Backend\Classes\FormField;
 use Backend\Classes\FormWidgetBase;
 use Backend\Controllers\Files as FilesController;
+use October\Rain\Filesystem\Definitions as FileDefinitions;
+use ApplicationException;
 use ValidationException;
 use Exception;
-
 
 /**
  * File upload field
@@ -29,6 +27,8 @@ use Exception;
  */
 class FileUpload extends FormWidgetBase
 {
+    use \Backend\Traits\FormModelWidget;
+
     //
     // Configurable properties
     //
@@ -76,12 +76,12 @@ class FileUpload extends FormWidgetBase
     //
 
     /**
-     * {@inheritDoc}
+     * @inheritDoc
      */
     protected $defaultAlias = 'fileupload';
 
     /**
-     * {@inheritDoc}
+     * @inheritDoc
      */
     public function init()
     {
@@ -95,11 +95,15 @@ class FileUpload extends FormWidgetBase
             'useCaption'
         ]);
 
+        if ($this->formField->disabled) {
+            $this->previewMode = true;
+        }
+
         $this->checkUploadPostback();
     }
 
     /**
-     * {@inheritDoc}
+     * @inheritDoc
      */
     public function render()
     {
@@ -119,7 +123,7 @@ class FileUpload extends FormWidgetBase
         $this->vars['fileList'] = $fileList = $this->getFileList();
         $this->vars['singleFile'] = $fileList->first();
         $this->vars['displayMode'] = $this->getDisplayMode();
-        $this->vars['emptyIcon'] = $this->getConfig('emptyIcon', 'icon-plus');
+        $this->vars['emptyIcon'] = $this->getConfig('emptyIcon', 'icon-upload');
         $this->vars['imageHeight'] = $this->imageHeight;
         $this->vars['imageWidth'] = $this->imageWidth;
         $this->vars['acceptedFileTypes'] = $this->getAcceptedFileTypes(true);
@@ -141,7 +145,7 @@ class FileUpload extends FormWidgetBase
         /*
          * Decorate each file with thumb and custom download path
          */
-        $list->each(function($file) {
+        $list->each(function ($file) {
             $this->decorateFileAttributes($file);
         });
 
@@ -230,7 +234,7 @@ class FileUpload extends FormWidgetBase
 
         if ($types === false) {
             $isImage = starts_with($this->getDisplayMode(), 'image');
-            $types = implode(',', File::getDefaultFileTypes($isImage));
+            $types = implode(',', FileDefinitions::get($isImage ? 'imageExtensions' : 'defaultExtensions'));
         }
 
         if (!$types || $types == '*') {
@@ -241,7 +245,7 @@ class FileUpload extends FormWidgetBase
             $types = explode(',', $types);
         }
 
-        $types = array_map(function($value) use ($includeDot) {
+        $types = array_map(function ($value) use ($includeDot) {
             $value = trim($value);
 
             if (substr($value, 0, 1) == '.') {
@@ -259,41 +263,12 @@ class FileUpload extends FormWidgetBase
     }
 
     /**
-     * Returns the value as a relation object from the model,
-     * supports nesting via HTML array.
-     * @return Relation
-     */
-    protected function getRelationObject()
-    {
-        list($model, $attribute) = $this->resolveModelAttribute($this->valueFrom);
-
-        if (!$model->hasRelation($attribute)) {
-            throw new ApplicationException(Lang::get('backend::lang.model.missing_relation', [
-                'class' => get_class($model),
-                'relation' => $attribute
-            ]));
-        }
-
-        return $model->{$attribute}();
-    }
-
-    /**
-     * Returns the value as a relation type from the model,
-     * supports nesting via HTML array.
-     * @return Relation
-     */
-    protected function getRelationType()
-    {
-        list($model, $attribute) = $this->resolveModelAttribute($this->valueFrom);
-        return $model->getRelationType($attribute);
-    }
-
-    /**
      * Removes a file attachment.
      */
     public function onRemoveAttachment()
     {
-        if (($file_id = post('file_id')) && ($file = File::find($file_id))) {
+        $fileModel = $this->getRelationModel();
+        if (($fileId = post('file_id')) && ($file = $fileModel::find($fileId))) {
             $this->getRelationObject()->remove($file, $this->sessionKey);
         }
     }
@@ -307,8 +282,8 @@ class FileUpload extends FormWidgetBase
             $ids = array_keys($sortData);
             $orders = array_values($sortData);
 
-            $file = new File;
-            $file->setSortableOrder($ids, $orders);
+            $fileModel = $this->getRelationModel();
+            $fileModel->setSortableOrder($ids, $orders);
         }
     }
 
@@ -317,12 +292,15 @@ class FileUpload extends FormWidgetBase
      */
     public function onLoadAttachmentConfig()
     {
-        if (($file_id = post('file_id')) && ($file = File::find($file_id))) {
+        $fileModel = $this->getRelationModel();
+        if (($fileId = post('file_id')) && ($file = $fileModel::find($fileId))) {
             $file = $this->decorateFileAttributes($file);
 
             $this->vars['file'] = $file;
             $this->vars['displayMode'] = $this->getDisplayMode();
             $this->vars['cssDimensions'] = $this->getCssDimensions();
+            $this->vars['relationManageId'] = post('manage_id');
+            $this->vars['relationField'] = post('_relation_field');
 
             return $this->makePartial('config_form');
         }
@@ -336,7 +314,8 @@ class FileUpload extends FormWidgetBase
     public function onSaveAttachmentConfig()
     {
         try {
-            if (($file_id = post('file_id')) && ($file = File::find($file_id))) {
+            $fileModel = $this->getRelationModel();
+            if (($fileId = post('file_id')) && ($file = $fileModel::find($fileId))) {
                 $file->title = post('title');
                 $file->description = post('description');
                 $file->save();
@@ -352,7 +331,7 @@ class FileUpload extends FormWidgetBase
     }
 
     /**
-     * {@inheritDoc}
+     * @inheritDoc
      */
     protected function loadAssets()
     {
@@ -361,7 +340,7 @@ class FileUpload extends FormWidgetBase
     }
 
     /**
-     * {@inheritDoc}
+     * @inheritDoc
      */
     public function getSaveValue($value)
     {
@@ -383,9 +362,10 @@ class FileUpload extends FormWidgetBase
                 throw new ApplicationException('File missing from request');
             }
 
+            $fileModel = $this->getRelationModel();
             $uploadedFile = Input::file('file_data');
 
-            $validationRules = ['max:'.File::getMaxFilesize()];
+            $validationRules = ['max:'.$fileModel::getMaxFilesize()];
             if ($fileTypes = $this->getAcceptedFileTypes()) {
                 $validationRules[] = 'extensions:'.$fileTypes;
             }
@@ -409,7 +389,7 @@ class FileUpload extends FormWidgetBase
 
             $fileRelation = $this->getRelationObject();
 
-            $file = new File();
+            $file = $fileModel;
             $file->data = $uploadedFile;
             $file->is_public = $fileRelation->isPublic();
             $file->save();

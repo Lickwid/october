@@ -1,7 +1,7 @@
 <?php namespace System\Models;
 
+use App;
 use Str;
-use DbDongle;
 use October\Rain\Database\Model;
 use Exception;
 
@@ -32,8 +32,9 @@ class EventLog extends Model
         return (
             class_exists('Model') &&
             Model::getConnectionResolver() &&
-            DbDongle::hasDatabase() &&
-            !defined('OCTOBER_NO_EVENT_LOGGING')
+            App::hasDatabase() &&
+            !defined('OCTOBER_NO_EVENT_LOGGING') &&
+            LogSetting::get('log_events')
         );
     }
 

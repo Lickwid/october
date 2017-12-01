@@ -2,7 +2,6 @@
 
 use Twig_Node;
 use Twig_Compiler;
-use Twig_NodeInterface;
 use Twig_Node_Expression;
 
 /**
@@ -13,7 +12,7 @@ use Twig_Node_Expression;
  */
 class FlashNode extends Twig_Node
 {
-    public function __construct($name, Twig_NodeInterface $body, $lineno, $tag = 'flash')
+    public function __construct($name, Twig_Node $body, $lineno, $tag = 'flash')
     {
         parent::__construct(['body' => $body], ['name' => $name], $lineno, $tag);
     }
@@ -33,13 +32,17 @@ class FlashNode extends Twig_Node
         ;
 
         if ($attrib == 'all') {
-            $compiler
+           $compiler
                 ->addDebugInfo($this)
-                ->write('foreach (Flash::all() as $type => $message) {'.PHP_EOL)
+                ->write('foreach (Flash::getMessages() as $type => $messages) {'.PHP_EOL)
                 ->indent()
-                    ->write('$context["type"] = $type;')
-                    ->write('$context["message"] = $message;')
-                    ->subcompile($this->getNode('body'))
+                    ->write('foreach ($messages as $message) {'.PHP_EOL)
+                    ->indent()
+                        ->write('$context["type"] = $type;')
+                        ->write('$context["message"] = $message;')
+                        ->subcompile($this->getNode('body'))
+                    ->outdent()
+                    ->write('}'.PHP_EOL)
                 ->outdent()
                 ->write('}'.PHP_EOL)
             ;

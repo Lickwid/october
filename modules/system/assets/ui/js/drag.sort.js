@@ -8,6 +8,7 @@
  */
 
  +function ($) { "use strict";
+
     var Base = $.oc.foundation.base,
         BaseProto = Base.prototype
 
@@ -98,6 +99,7 @@
 
         $item.addClass('dragged')
         $('body').addClass('dragging')
+        this.$el.addClass('dragging')
 
         /*
          * Use animation
@@ -111,6 +113,10 @@
          */
          if (this.options.usePlaceholderClone) {
             $(container.rootGroup.placeholder).html($item.html())
+         }
+
+         if (!this.options.useDraggingClone) {
+            $item.hide()
          }
     }
 
@@ -135,6 +141,7 @@
     Sortable.prototype.onDrop = function ($item, container, _super, event) {
         $item.removeClass('dragged').removeAttr('style')
         $('body').removeClass('dragging')
+        this.$el.removeClass('dragging')
 
         if ($item.data('oc.animated')) {
             $item
@@ -179,6 +186,7 @@
     Sortable.DEFAULTS = {
         useAnimation: false,
         usePlaceholderClone: false,
+        useDraggingClone: true,
         tweakCursorAdjustment: null
     }
 
@@ -197,7 +205,7 @@
             if (!data) $this.data('oc.sortable', (data = new Sortable(this, options)))
             if (typeof option == 'string') data[option].apply(data, args)
         })
-      }
+    }
 
     $.fn.sortable.Constructor = Sortable
 

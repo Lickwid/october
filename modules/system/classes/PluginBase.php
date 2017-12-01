@@ -4,6 +4,7 @@ use Illuminate\Support\ServiceProvider as ServiceProviderBase;
 use ReflectionClass;
 use SystemException;
 use Yaml;
+use Backend;
 
 /**
  * Plugin base class
@@ -16,7 +17,7 @@ class PluginBase extends ServiceProviderBase
     /**
      * @var boolean
      */
-    protected $loadedYamlConfigration = false;
+    protected $loadedYamlConfiguration = false;
 
     /**
      * @var array Plugin dependencies
@@ -48,7 +49,9 @@ class PluginBase extends ServiceProviderBase
             'method in the plugin class.', $thisClass));
 
         if (!array_key_exists('plugin', $configuration)) {
-            throw new SystemException('The plugin configuration file plugin.yaml should contain the "plugin" section: %s.', $thisClass);
+            throw new SystemException(sprintf(
+                'The plugin configuration file plugin.yaml should contain the "plugin" section: %s.', $thisClass)
+            );
         }
 
         return $configuration['plugin'];
@@ -99,7 +102,20 @@ class PluginBase extends ServiceProviderBase
      */
     public function registerNavigation()
     {
-        return [];
+        $configuration = $this->getConfigurationFromYaml();
+        if (array_key_exists('navigation', $configuration)) {
+            $navigation = $configuration['navigation'];
+
+            if (is_array($navigation)) {
+                array_walk_recursive($navigation, function (&$item, $key) {
+                    if ($key === 'url') {
+                        $item = Backend::url($item);
+                    }
+                });
+            }
+
+            return $navigation;
+        }
     }
 
     /**
@@ -109,7 +125,10 @@ class PluginBase extends ServiceProviderBase
      */
     public function registerPermissions()
     {
-        return [];
+        $configuration = $this->getConfigurationFromYaml();
+        if (array_key_exists('permissions', $configuration)) {
+            return $configuration['permissions'];
+        }
     }
 
     /**
@@ -119,7 +138,10 @@ class PluginBase extends ServiceProviderBase
      */
     public function registerSettings()
     {
-        return [];
+        $configuration = $this->getConfigurationFromYaml();
+        if (array_key_exists('settings', $configuration)) {
+            return $configuration['settings'];
+        }
     }
 
     /**
@@ -135,16 +157,18 @@ class PluginBase extends ServiceProviderBase
     /**
      * Registers any report widgets provided by this plugin.
      * The widgets must be returned in the following format:
-     * [
-     *  'className1'=>[
-     *          'label'    => 'My widget 1',
-     *          'context' => ['context-1', 'context-2'],
-     *      ],
-     *  'className2' => [
-     *          'label'    => 'My widget 2',
-     *          'context' => 'context-1'
-     *      ]
-     * ]
+     *
+     *     return [
+     *         'className1'=>[
+     *             'label'    => 'My widget 1',
+     *             'context' => ['context-1', 'context-2'],
+     *         ],
+     *         'className2' => [
+     *             'label'    => 'My widget 2',
+     *             'context' => 'context-1'
+     *         ]
+     *     ];
+     *
      * @return array
      */
     public function registerReportWidgets()
@@ -155,8 +179,12 @@ class PluginBase extends ServiceProviderBase
     /**
      * Registers any form widgets implemented in this plugin.
      * The widgets must be returned in the following format:
-     * ['className1' => 'alias'],
-     * ['className2' => 'anotherAlias']
+     *
+     *     return [
+     *         ['className1' => 'alias'],
+     *         ['className2' => 'anotherAlias']
+     *     ];
+     *
      * @return array
      */
     public function registerFormWidgets()
@@ -165,10 +193,24 @@ class PluginBase extends ServiceProviderBase
     }
 
     /**
+     * Registers custom back-end list column types introduced by this plugin.
+     *
+     * @return array
+     */
+    public function registerListColumnTypes()
+    {
+        return [];
+    }
+
+    /**
      * Registers any mail templates implemented by this plugin.
      * The templates must be returned in the following format:
-     * ['acme.blog::mail.welcome' => 'This is a description of the welcome template'],
-     * ['acme.blog::mail.forgot_password' => 'This is a description of the forgot password template'],
+     *
+     *     return [
+     *         ['acme.blog::mail.welcome' => 'This is a description of the welcome template'],
+     *         ['acme.blog::mail.forgot_password' => 'This is a description of the forgot password template'],
+     *     ];
+     *
      * @return array
      */
     public function registerMailTemplates()
@@ -186,7 +228,8 @@ class PluginBase extends ServiceProviderBase
     public function registerConsoleCommand($key, $class)
     {
         $key = 'command.'.$key;
-        $this->app[$key] = $this->app->share(function ($app) use ($class) {
+
+        $this->app->singleton($key, function ($app) use ($class) {
             return new $class;
         });
 
@@ -202,8 +245,8 @@ class PluginBase extends ServiceProviderBase
      */
     protected function getConfigurationFromYaml($exceptionMessage = null)
     {
-        if ($this->loadedYamlConfigration !== false) {
-            return $this->loadedYamlConfigration;
+        if ($this->loadedYamlConfiguration !== false) {
+            return $this->loadedYamlConfiguration;
         }
 
         $reflection = new ReflectionClass(get_class($this));
@@ -214,16 +257,16 @@ class PluginBase extends ServiceProviderBase
                 throw new SystemException($exceptionMessage);
             }
             else {
-                $this->loadedYamlConfigration = [];
+                $this->loadedYamlConfiguration = [];
             }
         }
         else {
-            $this->loadedYamlConfigration = Yaml::parse(file_get_contents($yamlFilePath));
-            if (!is_array($this->loadedYamlConfigration)) {
-                throw new SystemException('Invalid format of the plugin configuration file: %s. The file should define an array.', $yamlFilePath);
+            $this->loadedYamlConfiguration = Yaml::parse(file_get_contents($yamlFilePath));
+            if (!is_array($this->loadedYamlConfiguration)) {
+                throw new SystemException(sprintf('Invalid format of the plugin configuration file: %s. The file should define an array.', $yamlFilePath));
             }
         }
 
-        return $this->loadedYamlConfigration;
+        return $this->loadedYamlConfiguration;
     }
 }

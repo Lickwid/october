@@ -6,6 +6,7 @@ $.oc.table={}
 var Table=function(element,options){this.el=element
 this.$el=$(element)
 this.options=options
+this.disposed=false
 this.dataSource=null
 this.cellProcessors={}
 this.activeCellProcessor=null
@@ -23,11 +24,15 @@ this.toolbarClickHandler=this.onToolbarClick.bind(this)
 if(this.options.postback&&this.options.clientDataSourceClass=='client')
 this.formSubmitHandler=this.onFormSubmit.bind(this)
 this.navigation=null
+this.search=null
 this.recordsAddedOrDeleted=0
-this.init()}
+this.disposeBound=this.dispose.bind(this)
+this.init()
+$.oc.foundation.controlUtils.markDisposable(element)}
 Table.prototype.init=function(){this.createDataSource()
 this.initCellProcessors()
 this.navigation=new $.oc.table.helper.navigation(this)
+this.search=new $.oc.table.helper.search(this)
 this.buildUi()
 this.registerHandlers()}
 Table.prototype.disposeCellProcessors=function(){for(var i=0,len=this.options.columns.length;i<len;i++){var column=this.options.columns[i].key
@@ -41,6 +46,7 @@ throw new Error('The table client-side data source class "'+dataSourceClass+'" i
 this.dataSource=new $.oc.table.datasource[dataSourceClass](this)}
 Table.prototype.registerHandlers=function(){this.el.addEventListener('click',this.clickHandler)
 this.el.addEventListener('keydown',this.keydownHandler)
+this.$el.one('dispose-control',this.disposeBound)
 document.addEventListener('click',this.documentClickHandler)
 if(this.options.postback&&this.options.clientDataSourceClass=='client')
 this.$el.closest('form').bind('oc.beforeRequest',this.formSubmitHandler)
@@ -64,35 +70,18 @@ this.cellProcessors[column]=new $.oc.table.processor[columnType](this,column,col
 Table.prototype.getCellProcessor=function(columnName){return this.cellProcessors[columnName]}
 Table.prototype.buildUi=function(){this.tableContainer=document.createElement('div')
 this.tableContainer.setAttribute('class','table-container')
-if(this.options.toolbar)
-this.buildToolbar()
+if(this.options.toolbar){this.buildToolbar()}
 this.tableContainer.appendChild(this.buildHeaderTable())
 this.el.insertBefore(this.tableContainer,this.el.children[0])
-if(!this.options.height)
-this.dataTableContainer=this.tableContainer
-else
-this.dataTableContainer=this.buildScrollbar()
+if(!this.options.height){this.dataTableContainer=this.tableContainer}
+else{this.dataTableContainer=this.buildScrollbar()}
 this.updateDataTable()}
-Table.prototype.buildToolbar=function(){if(!this.options.adding&&!this.options.deleting)
-return
-this.toolbar=document.createElement('div')
-this.toolbar.setAttribute('class','toolbar')
-if(this.options.adding){var addBelowButton=document.createElement('a')
-addBelowButton.setAttribute('class','btn table-icon add-table-row-below')
-addBelowButton.setAttribute('data-cmd','record-add-below')
-this.toolbar.appendChild(addBelowButton)
-if(this.navigation.paginationEnabled()||!this.options.rowSorting){addBelowButton.textContent=this.options.btnAddRowLabel}else{addBelowButton.textContent=this.options.btnAddRowBelowLabel
-var addAboveButton=document.createElement('a')
-addAboveButton.setAttribute('class','btn table-icon add-table-row-above')
-addAboveButton.textContent='Add row above'
-addAboveButton.setAttribute('data-cmd','record-add-above')
-this.toolbar.appendChild(addAboveButton)}}
-if(this.options.deleting){var deleteButton=document.createElement('a')
-deleteButton.setAttribute('class','btn table-icon delete-table-row')
-deleteButton.textContent=this.options.btnDeleteRowLabel
-deleteButton.setAttribute('data-cmd','record-delete')
-this.toolbar.appendChild(deleteButton)}
-this.tableContainer.appendChild(this.toolbar)}
+Table.prototype.buildToolbar=function(){if(!this.options.adding&&!this.options.deleting){return}
+this.toolbar=$($('[data-table-toolbar]',this.el).html()).appendTo(this.tableContainer).get(0)
+if(!this.options.adding){$('[data-cmd^="record-add"]',this.toolbar).remove()}
+else{if(this.navigation.paginationEnabled()||!this.options.rowSorting){$('[data-cmd=record-add-below], [data-cmd=record-add-above]',this.toolbar).remove()}
+else{$('[data-cmd=record-add]',this.toolbar).remove()}}
+if(!this.options.deleting){$('[data-cmd="record-delete"]',this.toolbar).remove()}}
 Table.prototype.buildScrollbar=function(){var scrollbar=document.createElement('div'),scrollbarContent=document.createElement('div')
 scrollbar.setAttribute('class','control-scrollbar')
 if(this.options.dynamicHeight)
@@ -120,6 +109,7 @@ if(onSuccess)
 onSuccess()
 if(totalCount==0)
 self.addRecord('above',true)
+self.$el.trigger('oc.tableUpdateData',[records,totalCount])
 self=null})}
 Table.prototype.updateColumnWidth=function(){var headerCells=this.headerTable.querySelectorAll('th'),dataCells=this.dataTable.querySelectorAll('tr:first-child td')
 for(var i=0,len=headerCells.length;i<len;i++){if(dataCells[i])
@@ -149,11 +139,13 @@ this.dataTableContainer.appendChild(dataTable)
 this.dataTable=dataTable
 this.updateColumnWidth()
 this.updateScrollbar()
-this.navigation.buildPagination(totalCount)}
+this.navigation.buildPagination(totalCount)
+this.search.buildSearchForm()}
 Table.prototype.formatDataContainerValue=function(value){if(value===undefined){return''}
 if(typeof value==='boolean'){return value?1:''}
 return value}
-Table.prototype.fetchRecords=function(onSuccess){this.dataSource.getRecords(this.navigation.getPageFirstRowOffset(),this.options.recordsPerPage,onSuccess)}
+Table.prototype.fetchRecords=function(onSuccess){if(this.search.hasQuery()){this.dataSource.searchRecords(this.search.getQuery(),this.navigation.getPageFirstRowOffset(),this.options.recordsPerPage,onSuccess)}
+else{this.dataSource.getRecords(this.navigation.getPageFirstRowOffset(),this.options.recordsPerPage,onSuccess)}}
 Table.prototype.updateScrollbar=function(){if(!this.options.height)
 return
 $(this.dataTableContainer.parentNode).data('oc.scrollbar').update()}
@@ -221,6 +213,7 @@ this.navigation.pageIndex=newPageIndex}
 this.recordsAddedOrDeleted++
 var keyColumn=this.options.keyColumn,recordData={},self=this
 recordData[keyColumn]=-1*this.recordsAddedOrDeleted
+this.$el.trigger('oc.tableNewRow',[recordData])
 this.dataSource.createRecord(recordData,placement,relativeToKey,this.navigation.getPageFirstRowOffset(),this.options.recordsPerPage,function onAddRecordDataTableSuccess(records,totalCount){self.buildDataTable(records,totalCount)
 var row=self.findRowByKey(recordData[keyColumn])
 if(!row)
@@ -268,6 +261,8 @@ return true}
 Table.prototype.onClick=function(ev){this.focusTable()
 if(this.navigation.onClick(ev)===false)
 return
+if(this.search.onClick(ev)===false)
+return
 for(var i=0,len=this.options.columns.length;i<len;i++){var column=this.options.columns[i].key
 this.cellProcessors[column].onClick(ev)}
 var target=this.getEventTarget(ev,'TD')
@@ -276,7 +271,8 @@ return
 if(target.tagName!='TD')
 return
 this.focusCell(target,true)}
-Table.prototype.onKeydown=function(ev){if(ev.keyCode==65&&ev.altKey&&this.options.adding){if(!ev.shiftKey){this.addRecord('below')}else{this.addRecord('above')}
+Table.prototype.onKeydown=function(ev){if(ev.keyCode==65&&ev.altKey&&this.options.adding){if(!ev.shiftKey){this.addRecord('below')}
+else{this.addRecord('above')}
 this.stopEvent(ev)
 return}
 if(ev.keyCode==68&&ev.altKey&&this.options.deleting){this.deleteRecord()
@@ -284,16 +280,16 @@ this.stopEvent(ev)
 return}
 for(var i=0,len=this.options.columns.length;i<len;i++){var column=this.options.columns[i].key
 this.cellProcessors[column].onKeyDown(ev)}
-if(this.navigation.onKeydown(ev)===false)
-return}
+if(this.navigation.onKeydown(ev)===false){return}
+if(this.search.onKeydown(ev)===false){return}}
 Table.prototype.onFormSubmit=function(ev,data){if(data.handler==this.options.postbackHandlerName){this.unfocusTable()
 if(!this.validate()){ev.preventDefault()
 return}
-var fieldName=this.options.alias.indexOf('[')>-1?this.options.alias+'[TableData]':this.options.alias+'TableData';data.options.data[fieldName]=this.dataSource.getAllData()}}
+var fieldName=this.options.fieldName.indexOf('[')>-1?this.options.fieldName+'[TableData]':this.options.fieldName+'TableData'
+data.options.data[fieldName]=this.dataSource.getAllData()}}
 Table.prototype.onToolbarClick=function(ev){var target=this.getEventTarget(ev),cmd=target.getAttribute('data-cmd')
-if(!cmd)
-return
-switch(cmd){case'record-add-below':this.addRecord('below')
+if(!cmd){return}
+switch(cmd){case'record-add':case'record-add-below':this.addRecord('below')
 break
 case'record-add-above':this.addRecord('above')
 break
@@ -306,7 +302,10 @@ return
 if(this.activeCellProcessor&&this.activeCellProcessor.elementBelongsToProcessor(target))
 return
 this.unfocusTable()}
-Table.prototype.dispose=function(){this.unfocusTable()
+Table.prototype.dispose=function(){if(this.disposed){return}
+this.disposed=true
+this.disposeBound=true
+this.unfocusTable()
 this.dataSource.dispose()
 this.dataSource=null
 this.unregisterHandlers()
@@ -386,7 +385,7 @@ if(dataContainer.value!=value){dataContainer.value=value
 this.markCellRowDirty(cellElement)
 this.notifyRowProcessorsOnChange(cellElement)
 if(suppressEvents===undefined||!suppressEvents){this.$el.trigger('oc.tableCellChanged',[this.getCellColumnName(cellElement),value,this.getCellRowIndex(cellElement)])}}}
-Table.DEFAULTS={clientDataSourceClass:'client',keyColumn:'id',recordsPerPage:false,data:null,postback:true,postbackHandlerName:'onSave',adding:true,deleting:true,toolbar:true,rowSorting:false,height:false,dynamicHeight:false,btnAddRowLabel:'Add row',btnAddRowBelowLabel:'Add row below',btnDeleteRowLabel:'Delete row'}
+Table.DEFAULTS={clientDataSourceClass:'client',keyColumn:'id',recordsPerPage:false,data:null,postback:true,postbackHandlerName:'onSave',adding:true,deleting:true,toolbar:true,searching:false,rowSorting:false,height:false,dynamicHeight:false}
 var old=$.fn.table
 $.fn.table=function(option){var args=Array.prototype.slice.call(arguments,1),result=undefined
 this.each(function(){var $this=$(this)
@@ -422,7 +421,8 @@ if(newPaginationContainer||curRecordCount!=recordCount){paginationContainer.setA
 var pageList=this.buildPaginationLinkList(recordCount,this.tableObj.options.recordsPerPage,this.pageIndex)
 if(!newPaginationContainer){paginationContainer.replaceChild(pageList,paginationContainer.children[0])}
 else{paginationContainer.appendChild(pageList)
-this.tableObj.getElement().appendChild(paginationContainer)}}else{this.markActiveLinkItem(paginationContainer,this.pageIndex)}}
+this.tableObj.getElement().appendChild(paginationContainer)}}
+else{this.markActiveLinkItem(paginationContainer,this.pageIndex)}}
 Navigation.prototype.calculatePageCount=function(recordCount,recordsPerPage){var pageCount=Math.ceil(recordCount/recordsPerPage)
 if(!pageCount)
 pageCount=1
@@ -433,12 +433,12 @@ Navigation.prototype.buildPaginationLinkList=function(recordCount,recordsPerPage
 for(var i=0;i<pageCount;i++){var item=document.createElement('li'),link=document.createElement('a')
 if(i==pageIndex)
 item.setAttribute('class','active')
-$(item).addClass('pagination-link')
 link.innerText=i+1
 link.setAttribute('data-page-index',i)
 link.setAttribute('href','#')
 item.appendChild(link)
-pageList.appendChild(item)}
+pageList.appendChild(item)
+$(link).addClass('pagination-link')}
 return pageList}
 Navigation.prototype.markActiveLinkItem=function(paginationContainer,pageIndex){var activeItem=paginationContainer.querySelector('.active'),list=paginationContainer.children[0]
 activeItem.setAttribute('class','')
@@ -481,7 +481,8 @@ return
 var row=this.tableObj.activeCell.parentNode,newRow=(!ev.shiftKey||isTab)?row.previousElementSibling:row.parentNode.children[0],cellIndex=forceCellIndex!==undefined?forceCellIndex:this.tableObj.activeCell.cellIndex
 if(newRow){var cell=newRow.children[cellIndex]
 if(cell)
-this.tableObj.focusCell(cell)}else{if(!this.paginationEnabled())
+this.tableObj.focusCell(cell)}
+else{if(!this.paginationEnabled())
 return
 if(this.pageIndex>0){var self=this
 this.gotoPage(this.pageIndex-1,function navUpPageSuccess(){self.focusCell('bottom',cellIndex)
@@ -492,8 +493,7 @@ if(!isTab&&this.tableObj.activeCellProcessor&&!this.tableObj.activeCellProcessor
 return
 var row=this.tableObj.activeCell.parentNode,newIndex=(!ev.shiftKey||isTab)?this.tableObj.activeCell.cellIndex-1:0
 var cell=row.children[newIndex]
-if(cell)
-this.tableObj.focusCell(cell)
+if(cell){this.tableObj.focusCell(cell)}
 else{this.navigateUp(ev,row.children.length-1,isTab)}}
 Navigation.prototype.navigateRight=function(ev,isTab){if(!this.tableObj.activeCell)
 return
@@ -501,8 +501,7 @@ if(!isTab&&this.tableObj.activeCellProcessor&&!this.tableObj.activeCellProcessor
 return
 var row=this.tableObj.activeCell.parentNode,newIndex=!ev.shiftKey?this.tableObj.activeCell.cellIndex+1:row.children.length-1
 var cell=row.children[newIndex]
-if(cell)
-this.tableObj.focusCell(cell)
+if(cell){this.tableObj.focusCell(cell)}
 else{this.navigateDown(ev,0)}}
 Navigation.prototype.navigateNext=function(ev){if(!this.tableObj.activeCell)
 return
@@ -514,8 +513,7 @@ else
 this.navigateLeft(ev,true)
 this.tableObj.stopEvent(ev)}
 Navigation.prototype.focusCell=function(rowReference,cellIndex){var row=null,tbody=this.tableObj.getDataTableBody()
-if(typeof rowReference==='object')
-row=rowReference
+if(typeof rowReference==='object'){row=rowReference}
 else{if(rowReference=='bottom'){row=tbody.children[tbody.children.length-1]}
 else if(rowReference=='top'){row=tbody.children[0]}}
 if(!row)
@@ -523,8 +521,7 @@ return
 var cell=row.children[cellIndex]
 if(cell)
 this.tableObj.focusCell(cell)}
-Navigation.prototype.focusCellInReplacedRow=function(rowIndex,cellIndex){if(rowIndex==0)
-this.focusCell('top',cellIndex)
+Navigation.prototype.focusCellInReplacedRow=function(rowIndex,cellIndex){if(rowIndex==0){this.focusCell('top',cellIndex)}
 else{var focusRow=this.tableObj.findRowByIndex(rowIndex)
 if(!focusRow)
 focusRow=this.tableObj.findRowByIndex(rowIndex-1)
@@ -552,11 +549,43 @@ this.gotoPage(pageIndex)
 this.tableObj.stopEvent(ev)
 return false}
 $.oc.table.helper.navigation=Navigation;}(window.jQuery);+function($){"use strict";if($.oc.table===undefined)
+throw new Error("The $.oc.table namespace is not defined. Make sure that the table.js script is loaded.");if($.oc.table.helper===undefined)
+$.oc.table.helper={}
+var Search=function(tableObj){this.tableObj=tableObj
+this.searchForm=null
+this.searchInput=null
+this.inputTrackTimer=null
+this.activeQuery=null
+this.isActive=false
+this.init()};Search.prototype.init=function(){}
+Search.prototype.dispose=function(){this.tableObj=null
+this.searchForm=null
+this.searchInput=null}
+Search.prototype.buildSearchForm=function(){if(!this.searchEnabled())
+return
+var el=this.tableObj.getElement(),toolbar=this.tableObj.getToolbar(),searchForm=toolbar.querySelector('.table-search')
+if(!searchForm){this.searchForm=$($('[data-table-toolbar-search]',el).html()).appendTo(toolbar).get(0)
+this.searchInput=$('.table-search-input',this.searchForm).get(0)}}
+Search.prototype.getQuery=function(){return $.trim(this.activeQuery)}
+Search.prototype.hasQuery=function(){return this.searchEnabled()&&$.trim(this.activeQuery).length>0}
+Search.prototype.searchEnabled=function(){return this.tableObj.options.searching}
+Search.prototype.performSearch=function(query,onSuccess){var isDirty=this.activeQuery!=query
+this.activeQuery=query
+if(isDirty){this.tableObj.updateDataTable(onSuccess)}}
+Search.prototype.onKeydown=function(ev){if(ev.keyCode==9){this.onClick(ev)
+return}
+if(!this.isActive){return}
+var self=this
+this.inputTrackTimer=window.setTimeout(function(){self.performSearch(self.searchInput.value)},300)}
+Search.prototype.onClick=function(ev){var target=this.tableObj.getEventTarget(ev,'INPUT')
+this.isActive=target&&$(target).hasClass('table-search-input')}
+$.oc.table.helper.search=Search;}(window.jQuery);+function($){"use strict";if($.oc.table===undefined)
 throw new Error("The $.oc.table namespace is not defined. Make sure that the table.js script is loaded.");if($.oc.table.datasource===undefined)
 $.oc.table.datasource={}
 var Base=function(tableObj){this.tableObj=tableObj}
 Base.prototype.dispose=function(){this.tableObj=null}
 Base.prototype.getRecords=function(offset,count,onSuccess){onSuccess([])}
+Base.prototype.searchRecords=function(query,offset,count,onSuccess){onSuccess([])}
 Base.prototype.createRecord=function(recordData,placement,relativeToKey,offset,count,onSuccess){onSuccess([],0)}
 Base.prototype.updateRecord=function(key,recordData){}
 Base.prototype.deleteRecord=function(key,newRecordData,offset,count,onSuccess){onSuccess([],0)}
@@ -583,7 +612,7 @@ Client.prototype.updateRecord=function(key,recordData){var recordIndex=this.getI
 if(recordIndex!==-1){recordData[this.tableObj.options.keyColumn]=key
 this.data[recordIndex]=recordData}
 else{throw new Error('Record with they key '+key+' is not found in the data set')}}
-Base.prototype.deleteRecord=function(key,newRecordData,offset,count,onSuccess){var recordIndex=this.getIndexOfKey(key)
+Client.prototype.deleteRecord=function(key,newRecordData,offset,count,onSuccess){var recordIndex=this.getIndexOfKey(key)
 if(recordIndex!==-1){this.data.splice(recordIndex,1)
 if(this.data.length==0)
 this.data.push(newRecordData)
@@ -593,6 +622,27 @@ Client.prototype.getIndexOfKey=function(key){var keyColumn=this.tableObj.options
 return this.data.map(function(record){return record[keyColumn]+""}).indexOf(key+"")}
 Client.prototype.getAllData=function(){return this.data}
 $.oc.table.datasource.client=Client}(window.jQuery);+function($){"use strict";if($.oc.table===undefined)
+throw new Error("The $.oc.table namespace is not defined. Make sure that the table.js script is loaded.");if($.oc.table.datasource===undefined)
+throw new Error("The $.oc.table.datasource namespace is not defined. Make sure that the table.datasource.base.js script is loaded.");var Base=$.oc.table.datasource.base,BaseProto=Base.prototype
+var Server=function(tableObj){Base.call(this,tableObj)
+var dataString=tableObj.getElement().getAttribute('data-data')
+if(dataString===null||dataString===undefined)
+throw new Error('The required data-data attribute is not found on the table control element.')
+this.data=JSON.parse(dataString)};Server.prototype=Object.create(BaseProto)
+Server.prototype.constructor=Server
+Server.prototype.dispose=function(){BaseProto.dispose.call(this)
+this.data=null}
+Server.prototype.getRecords=function(offset,count,onSuccess){var handlerName=this.tableObj.getAlias()+'::onServerGetRecords'
+this.tableObj.$el.request(handlerName,{data:{offset:offset,count:count}}).done(function(data){onSuccess(data.records,data.count)})}
+Server.prototype.searchRecords=function(query,offset,count,onSuccess){var handlerName=this.tableObj.getAlias()+'::onServerSearchRecords'
+this.tableObj.$el.request(handlerName,{data:{query:query,offset:offset,count:count}}).done(function(data){onSuccess(data.records,data.count)})}
+Server.prototype.createRecord=function(recordData,placement,relativeToKey,offset,count,onSuccess){var handlerName=this.tableObj.getAlias()+'::onServerCreateRecord'
+this.tableObj.$el.request(handlerName,{data:{recordData:recordData,placement:placement,relativeToKey:relativeToKey,offset:offset,count:count}}).done(function(data){onSuccess(data.records,data.count)})}
+Server.prototype.updateRecord=function(key,recordData){var handlerName=this.tableObj.getAlias()+'::onServerUpdateRecord'
+this.tableObj.$el.request(handlerName,{data:{key:key,recordData:recordData}})}
+Server.prototype.deleteRecord=function(key,newRecordData,offset,count,onSuccess){var handlerName=this.tableObj.getAlias()+'::onServerDeleteRecord'
+this.tableObj.$el.request(handlerName,{data:{key:key,offset:offset,count:count}}).done(function(data){onSuccess(data.records,data.count)})}
+$.oc.table.datasource.server=Server}(window.jQuery);+function($){"use strict";if($.oc.table===undefined)
 throw new Error("The $.oc.table namespace is not defined. Make sure that the table.js script is loaded.");if($.oc.table.processor===undefined)
 $.oc.table.processor={}
 var Base=function(tableObj,columnName,columnConfiguration){this.tableObj=tableObj
@@ -618,7 +668,7 @@ Base.prototype.isCellFocusable=function(){return true}
 Base.prototype.getCellContentContainer=function(cellElement){return cellElement.querySelector('.content-container')}
 Base.prototype.createViewContainer=function(cellContentContainer,value){var viewContainer=document.createElement('div')
 viewContainer.setAttribute('data-view-container','data-view-container')
-viewContainer.textContent=value
+viewContainer.textContent=value===undefined?'':value
 cellContentContainer.appendChild(viewContainer)
 return viewContainer}
 Base.prototype.getViewContainer=function(cellElement){return cellElement.querySelector('[data-view-container]')}
@@ -662,6 +712,7 @@ var input=document.createElement('input')
 input.setAttribute('type','text')
 input.setAttribute('class','string-input')
 input.value=this.tableObj.getCellValue(cellElement)
+if(this.columnConfiguration.readOnly){input.setAttribute('readonly',true)}
 cellContentContainer.appendChild(input)
 this.setCaretPosition(input,0)
 window.setTimeout(this.focusTimeoutHandler,0)}
@@ -801,8 +852,7 @@ if(!activeItemElement){activeItemElement=this.itemListElement.querySelector('ul 
 if(activeItemElement)
 activeItemElement.setAttribute('class','selected')}
 if(activeItemElement){window.setTimeout(function(){activeItemElement.focus()},0)}}}
-DropdownProcessor.prototype.fetchOptions=function(cellElement,onSuccess){if(this.columnConfiguration.options)
-onSuccess(this.columnConfiguration.options)
+DropdownProcessor.prototype.fetchOptions=function(cellElement,onSuccess){if(this.columnConfiguration.options){onSuccess(this.columnConfiguration.options)}
 else{var row=cellElement.parentNode,cachingKey=this.createOptionsCachingKey(row),viewContainer=this.getViewContainer(cellElement)
 viewContainer.setAttribute('class','loading')
 if(!this.cachedOptionPromises[cachingKey]){var requestData={column:this.columnName,rowData:this.tableObj.getRowData(row)},handlerName=this.tableObj.getAlias()+'::onGetDropdownOptions'
@@ -863,6 +913,54 @@ DropdownProcessor.prototype.elementBelongsToProcessor=function(element){if(!this
 return false
 return this.tableObj.parentContainsElement(this.itemListElement,element)}
 $.oc.table.processor.dropdown=DropdownProcessor;}(window.jQuery);+function($){"use strict";if($.oc.table===undefined)
+throw new Error("The $.oc.table namespace is not defined. Make sure that the table.js script is loaded.");if($.oc.table.processor===undefined)
+throw new Error("The $.oc.table.processor namespace is not defined. Make sure that the table.processor.base.js script is loaded.");var Base=$.oc.table.processor.string,BaseProto=Base.prototype
+var AutocompleteProcessor=function(tableObj,columnName,columnConfiguration){this.cachedOptionPromises={}
+Base.call(this,tableObj,columnName,columnConfiguration)}
+AutocompleteProcessor.prototype=Object.create(BaseProto)
+AutocompleteProcessor.prototype.constructor=AutocompleteProcessor
+AutocompleteProcessor.prototype.dispose=function(){this.cachedOptionPromises=null
+BaseProto.dispose.call(this)}
+AutocompleteProcessor.prototype.onUnfocus=function(){if(!this.activeCell)
+return
+this.removeAutocomplete()
+BaseProto.onUnfocus.call(this)}
+AutocompleteProcessor.prototype.renderCell=function(value,cellContentContainer){BaseProto.renderCell.call(this,value,cellContentContainer)}
+AutocompleteProcessor.prototype.buildEditor=function(cellElement,cellContentContainer,isClick){BaseProto.buildEditor.call(this,cellElement,cellContentContainer,isClick)
+var self=this
+this.fetchOptions(cellElement,function autocompleteFetchOptions(options){self.buildAutoComplete(options)
+self=null})}
+AutocompleteProcessor.prototype.fetchOptions=function(cellElement,onSuccess){if(this.columnConfiguration.options){if(onSuccess!==undefined){onSuccess(this.columnConfiguration.options)}}else{if(this.triggerGetOptions(onSuccess)===false){return}
+var row=cellElement.parentNode,cachingKey=this.createOptionsCachingKey(row),viewContainer=this.getViewContainer(cellElement)
+$.oc.foundation.element.addClass(viewContainer,'loading')
+if(!this.cachedOptionPromises[cachingKey]){var requestData={column:this.columnName,rowData:this.tableObj.getRowData(row)},handlerName=this.tableObj.getAlias()+'::onGetAutocompleteOptions'
+this.cachedOptionPromises[cachingKey]=this.tableObj.$el.request(handlerName,{data:requestData})}
+this.cachedOptionPromises[cachingKey].done(function onAutocompleteLoadOptionsSuccess(data){if(onSuccess!==undefined){onSuccess(data.options)}}).always(function onAutocompleteLoadOptionsAlways(){$.oc.foundation.element.removeClass(viewContainer,'loading')})}}
+AutocompleteProcessor.prototype.createOptionsCachingKey=function(row){var cachingKey='non-dependent',dependsOn=this.columnConfiguration.dependsOn
+if(dependsOn){if(typeof dependsOn=='object'){for(var i=0,len=dependsOn.length;i<len;i++)
+cachingKey+=dependsOn[i]+this.tableObj.getRowCellValueByColumnName(row,dependsOn[i])}else
+cachingKey=dependsOn+this.tableObj.getRowCellValueByColumnName(row,dependsOn)}
+return cachingKey}
+AutocompleteProcessor.prototype.triggerGetOptions=function(callback){var tableElement=this.tableObj.getElement()
+if(!tableElement){return}
+var optionsEvent=$.Event('autocompleteitems.oc.table'),values={}
+$(tableElement).trigger(optionsEvent,[{values:values,callback:callback,column:this.columnName,columnConfiguration:this.columnConfiguration}])
+if(optionsEvent.isDefaultPrevented()){return false}
+return true}
+AutocompleteProcessor.prototype.getInput=function(){if(!this.activeCell){return null}
+return this.activeCell.querySelector('.string-input')}
+AutocompleteProcessor.prototype.buildAutoComplete=function(items){if(!this.activeCell){return}
+var input=this.getInput()
+if(!input){return}
+if(items===undefined){items=[]}
+$(input).autocomplete({source:this.prepareItems(items),matchWidth:true,menu:'<ul class="autocomplete dropdown-menu table-widget-autocomplete"></ul>',bodyContainer:true})}
+AutocompleteProcessor.prototype.prepareItems=function(items){var result={}
+if($.isArray(items)){for(var i=0,len=items.length;i<len;i++){result[items[i]]=items[i]}}
+else{result=items}
+return result}
+AutocompleteProcessor.prototype.removeAutocomplete=function(){var input=this.getInput()
+$(input).autocomplete('destroy')}
+$.oc.table.processor.autocomplete=AutocompleteProcessor;}(window.jQuery);+function($){"use strict";if($.oc.table===undefined)
 throw new Error("The $.oc.table namespace is not defined. Make sure that the table.js script is loaded.");if($.oc.table.validator===undefined)
 $.oc.table.validator={}
 var Base=function(options){this.options=options}

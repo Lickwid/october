@@ -18,7 +18,7 @@ class FlashTokenParser extends Twig_TokenParser
      *
      * @param Twig_Token $token A Twig_Token instance
      *
-     * @return Twig_NodeInterface A Twig_NodeInterface instance
+     * @return Twig_Node A Twig_Node instance
      */
     public function parse(Twig_Token $token)
     {
@@ -33,7 +33,7 @@ class FlashTokenParser extends Twig_TokenParser
         }
         $stream->expect(Twig_Token::BLOCK_END_TYPE);
 
-        $body = $this->parser->subparse(array($this, 'decideIfEnd'), true);
+        $body = $this->parser->subparse([$this, 'decideIfEnd'], true);
         $stream->expect(Twig_Token::BLOCK_END_TYPE);
 
         return new FlashNode($name, $body, $lineno, $this->getTag());
@@ -41,7 +41,7 @@ class FlashTokenParser extends Twig_TokenParser
 
     public function decideIfEnd(Twig_Token $token)
     {
-        return $token->test(array('endflash'));
+        return $token->test(['endflash']);
     }
 
     /**

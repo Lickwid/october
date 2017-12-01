@@ -2,27 +2,8 @@
 
 return [
     'app' => [
-        'name' => 'October CMS',
-        'tagline' => 'Basitliğe dönüş...'
-    ],
-    'locale' => [
-        'cs' => 'Czech',
-        'en' => 'English (United States)',
-        'de' => 'Deutsch (Deutschland)',
-        'es' => 'Español (Spanish)',
-        'es-ar' => 'Español (Argentina)',
-        'fa' => '‏فارسی‏ (Iran) ايران',
-        'fr' => 'Français (France)',
-        'hu' => 'Magyar (Magyarország - Hungary)',
-        'it' => 'Italiano (Italia)',
-        'ja' => '日本語 (Japan) 日本',
-        'nl' => 'Nederlands (Nederland)',
-        'pt-br' => 'Português (Brasil)',
-        'ro' => 'Română (România)',
-        'ru' => 'Русский (Россия - Russia)',
-        'sv' => 'Svenska (Sverige)',
-        'tr' => 'Türkçe (Türkiye)',
-        'nb-no' => 'Norwegian (Bokmål)'
+        'name' => 'OctoberCMS',
+        'tagline' => 'Sadeliğe dönüş...'
     ],
     'directory' => [
         'create_fail' => "Klasör oluşturulamıyor: :name"
@@ -155,6 +136,13 @@ return [
         'mandrill' => 'Mandrill',
         'mandrill_secret' => 'Mandrill Gizli Anahtarı',
         'mandrill_secret_comment' => 'Mandrill API anahtarını girin.',
+        'ses' => 'SES',
+        'ses_key' => 'SES key',
+        'ses_key_comment' => 'SES API keyi girin',
+        'ses_secret' => 'SES secret',
+        'ses_secret_comment' => 'SES API secret keyi girin',
+        'ses_region' => 'SES bölgesi',
+        'ses_region_comment' => 'SES bölgenizi girin (örnek: us-east-1)',
         'drivers_hint_header' => 'Sürücüler yüklenmemiş',
         'drivers_hint_content' => 'Bu eposta yöntemiyle eposta gönderebilmeniz için ":plugin" eklentisinin kurulmuş olması gerekir.'
     ],
@@ -181,10 +169,17 @@ return [
         'content_text' => 'Düzyazı',
         'test_send' => 'Test mesajı gönder',
         'test_success' => 'Test mesajı başarılı şekilde gönderildi.',
-        'return' => 'Şablon listesine geri dön',
         'test_confirm' => 'Deneme mesajı :email eposta adresine gönderilecek. Devam etmek istiyor musunuz?',
+        'creating' => 'Şablon Oluşturuluyor...',
+        'creating_layout' => 'Layout Oluşturuluyor...',
         'saving' => 'Şablon kaydediliyor...',
+        'saving_layout' => 'Layout kaydediliyor...',
+        'delete_confirm' => 'Bu şablonu silmek istediğinize emin misiniz?',
+        'delete_layout_confirm' => 'Bu layout\'u silmek istediğinize emin misiniz?',
+        'deleting' => 'Şablon Siliniyor...',
+        'deleting_layout' => 'Layout Siliniyor...',
         'sending' => 'Deneme mesajı gönderiliyor...',
+        'return' => 'Şablon listesine geri dön'
     ],
     'install' => [
         'project_label' => 'Projeye bağla',
@@ -208,6 +203,7 @@ return [
         'plugin_description' => 'Açıklama',
         'plugin_version' => 'Versiyon',
         'plugin_author' => 'Yazar',
+        'plugin_not_found' => 'Plugin not found',
         'core_current_build' => 'Mevcut versiyon',
         'core_build' => 'Versiyon :build',
         'core_build_help' => 'Son versiyon kullanılabilir.',
@@ -285,7 +281,8 @@ return [
         'id_label' => 'Olay Numarası',
         'created_at' => 'Tarih & Saat',
         'message' => 'Mesaj',
-        'level' => 'Seviye'
+        'level' => 'Seviye',
+        'preview_title' => 'Olay'
     ],
     'request_log' => [
         'hint' => 'Bu günlük dikkat edilmesi gereken tarayıcı isteklerinin bir listesini görüntüler. Örneğin, bir ziyaretçi bulunmayan bir CMS sayfasını açarsa 404 kodu ile bir kayıt oluşturulur.',
@@ -300,17 +297,24 @@ return [
         'count' => 'Sayaç',
         'referer' => 'Referer',
         'url' => 'URL',
-        'status_code' => 'Durum'
+        'status_code' => 'Durum',
+        'preview_title' => 'İstek'
     ],
     'permissions' => [
         'name' => 'Sistem',
-        'manage_system_settings' => 'Sistem ayarlarını düzenleyebilsin',
-        'manage_software_updates' => 'Sistem güncellemelerini yönetebilsin',
-        'access_logs' => 'Sistem günlüğünü görüntüle',
-        'manage_mail_templates' => 'E-posta şablonları yönetebilsin',
-        'manage_mail_settings' => 'E-posta ayarlarını yönetebilsin',
-        'manage_other_administrators' => 'Diğer yöneticileri düzenleyebilsin',
-        'view_the_dashboard' => 'Panoyu görüntüleyebilsin',
-        'manage_branding' => 'Back-end i özelleştir'
-    ]
+        'manage_system_settings' => 'Sistem ayarlarını düzenleyebilir',
+        'manage_software_updates' => 'Sistem güncellemelerini yönetebilir',
+        'access_logs' => 'Sistem günlüğünü görüntüleyebilir',
+        'manage_mail_templates' => 'E-posta şablonları yönetebilir',
+        'manage_mail_settings' => 'E-posta ayarlarını yönetebilir',
+        'manage_other_administrators' => 'Diğer yöneticileri düzenleyebilir',
+        'manage_preferences' => 'Yönetim paneli seçeneklerini düzenleyebilir',
+        'manage_editor' => 'Kod editör ayarlarını düzenleyebilir',
+        'view_the_dashboard' => 'Panoyu görüntüleyebilir',
+        'manage_branding' => 'Yönetim Panelini özelleştirebilsin'
+    ],
+    'media' => [
+        'invalid_path' => "Geçersiz dosya dizini belirtildi: ':path'.",
+        'folder_size_items' => 'öğe(ler)',
+    ],
 ];

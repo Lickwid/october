@@ -1,13 +1,13 @@
 <?php namespace Cms\Classes;
 
-use URL;
+use Cms;
+use Url;
 use Str;
 use App;
 use File;
 use View;
 use Lang;
-use Route;
-use Event;
+use Flash;
 use Config;
 use Session;
 use Request;
@@ -15,11 +15,13 @@ use Response;
 use Exception;
 use BackendAuth;
 use Twig_Environment;
+use Twig_Cache_Filesystem;
 use Cms\Twig\Loader as TwigLoader;
 use Cms\Twig\DebugExtension;
 use Cms\Twig\Extension as CmsTwigExtension;
-use Cms\Models\MaintenanceSettings;
+use Cms\Models\MaintenanceSetting;
 use System\Models\RequestLog;
+use System\Helpers\View as ViewHelper;
 use System\Classes\ErrorHandler;
 use System\Classes\CombineAssets;
 use System\Twig\Extension as SystemTwigExtension;
@@ -27,7 +29,7 @@ use October\Rain\Exception\AjaxException;
 use October\Rain\Exception\SystemException;
 use October\Rain\Exception\ValidationException;
 use October\Rain\Exception\ApplicationException;
-use October\Rain\Parse\Template as TextParser;
+use October\Rain\Parse\Bracket as TextParser;
 use Illuminate\Http\RedirectResponse;
 
 /**
@@ -40,7 +42,7 @@ use Illuminate\Http\RedirectResponse;
 class Controller
 {
     use \System\Traits\AssetMaker;
-    use \October\Rain\Support\Traits\Emitter;
+    use \System\Traits\EventEmitter;
 
     /**
      * @var \Cms\Classes\Theme A reference to the CMS theme processed by the controller.
@@ -103,7 +105,7 @@ class Controller
     protected static $instance = null;
 
     /**
-     * @var Cms\Classes\ComponentBase Object of the active component, used internally.
+     * @var \Cms\Classes\ComponentBase Object of the active component, used internally.
      */
     protected $componentContext = null;
 
@@ -164,20 +166,21 @@ class Controller
          * Maintenance mode
          */
         if (
-            MaintenanceSettings::isConfigured() &&
-            MaintenanceSettings::get('is_enabled', false) &&
+            MaintenanceSetting::isConfigured() &&
+            MaintenanceSetting::get('is_enabled', false) &&
             !BackendAuth::getUser()
         ) {
-            $page = Page::loadCached($this->theme, MaintenanceSettings::get('cms_page'));
+            if (!Request::ajax()) {
+                $this->setStatusCode(503);
+            }
+
+            $page = Page::loadCached($this->theme, MaintenanceSetting::get('cms_page'));
         }
 
         /*
          * Extensibility
          */
-        if (
-            ($event = $this->fireEvent('page.beforeDisplay', [$url, $page], true)) ||
-            ($event = Event::fire('cms.page.beforeDisplay', [$this, $url, $page], true))
-        ) {
+        if ($event = $this->fireSystemEvent('cms.page.beforeDisplay', [$url, $page])) {
             if ($event instanceof Page) {
                 $page = $event;
             }
@@ -189,8 +192,10 @@ class Controller
         /*
          * If the page was not found, render the 404 page - either provided by the theme or the built-in one.
          */
-        if (!$page) {
-            $this->setStatusCode(404);
+        if (!$page || $url === '404') {
+            if (!Request::ajax()) {
+                $this->setStatusCode(404);
+            }
 
             // Log the 404 request
             if (!App::runningUnitTests()) {
@@ -215,10 +220,7 @@ class Controller
         /*
          * Extensibility
          */
-        if (
-            ($event = $this->fireEvent('page.display', [$url, $page, $result], true)) ||
-            ($event = Event::fire('cms.page.display', [$this, $url, $page, $result], true))
-        ) {
+        if ($event = $this->fireSystemEvent('cms.page.display', [$url, $page, $result])) {
             return $event;
         }
 
@@ -318,10 +320,7 @@ class Controller
         /*
          * Extensibility
          */
-        if (
-            ($event = $this->fireEvent('page.init', [$page], true)) ||
-            ($event = Event::fire('cms.page.init', [$this, $page], true))
-        ) {
+        if ($event = $this->fireSystemEvent('cms.page.init', [$page])) {
             return $event;
         }
 
@@ -338,6 +337,7 @@ class Controller
         if (
             $useAjax &&
             ($handler = post('_handler')) &&
+            ($this->verifyCsrfToken()) &&
             ($handlerResponse = $this->runAjaxHandler($handler)) &&
             $handlerResponse !== true
         ) {
@@ -354,10 +354,7 @@ class Controller
         /*
          * Extensibility
          */
-        if (
-            ($event = $this->fireEvent('page.beforeRenderPage', [$page], true)) ||
-            ($event = Event::fire('cms.page.beforeRenderPage', [$this, $page], true))
-        ) {
+        if ($event = $this->fireSystemEvent('cms.page.beforeRenderPage', [$page])) {
             $this->pageContents = $event;
         }
         else {
@@ -366,7 +363,7 @@ class Controller
              */
             CmsException::mask($this->page, 400);
             $this->loader->setObject($this->page);
-            $template = $this->twig->loadTemplate($this->page->getFullPath());
+            $template = $this->twig->loadTemplate($this->page->getFilePath());
             $this->pageContents = $template->render($this->vars);
             CmsException::unmask();
         }
@@ -376,7 +373,7 @@ class Controller
          */
         CmsException::mask($this->layout, 400);
         $this->loader->setObject($this->layout);
-        $template = $this->twig->loadTemplate($this->layout->getFullPath());
+        $template = $this->twig->loadTemplate($this->layout->getFilePath());
         $result = $template->render($this->vars);
         CmsException::unmask();
 
@@ -402,10 +399,7 @@ class Controller
         /*
          * Extensibility
          */
-        if (
-            ($event = $this->fireEvent('page.start', [], true)) ||
-            ($event = Event::fire('cms.page.start', [$this], true))
-        ) {
+        if ($event = $this->fireSystemEvent('cms.page.start')) {
             return $event;
         }
 
@@ -414,9 +408,11 @@ class Controller
          */
         if ($this->layoutObj) {
             CmsException::mask($this->layout, 300);
-            $response = (($result = $this->layoutObj->onStart()) ||
+            $response = (
+                ($result = $this->layoutObj->onStart()) ||
                 ($result = $this->layout->runComponents()) ||
-                ($result = $this->layoutObj->onBeforePageStart())) ? $result: null;
+                ($result = $this->layoutObj->onBeforePageStart())
+            ) ? $result : null;
             CmsException::unmask();
 
             if ($response) {
@@ -428,9 +424,11 @@ class Controller
          * Run page functions
          */
         CmsException::mask($this->page, 300);
-        $response = (($result = $this->pageObj->onStart()) ||
+        $response = (
+            ($result = $this->pageObj->onStart()) ||
             ($result = $this->page->runComponents()) ||
-            ($result = $this->pageObj->onEnd())) ? $result : null;
+            ($result = $this->pageObj->onEnd())
+        ) ? $result : null;
         CmsException::unmask();
 
         if ($response) {
@@ -449,10 +447,7 @@ class Controller
         /*
          * Extensibility
          */
-        if (
-            ($event = $this->fireEvent('page.end', [], true)) ||
-            ($event = Event::fire('cms.page.end', [$this], true))
-        ) {
+        if ($event = $this->fireSystemEvent('cms.page.end')) {
             return $event;
         }
 
@@ -473,7 +468,7 @@ class Controller
 
         $dataHolder = (object) ['content' => $content];
 
-        Event::fire('cms.page.postprocess', [$this, $url, $page, $dataHolder]);
+        $this->fireSystemEvent('cms.page.postprocess', [$url, $page, $dataHolder]);
 
         return $dataHolder->content;
     }
@@ -491,14 +486,20 @@ class Controller
     {
         $this->loader = new TwigLoader;
 
+        $useCache = !Config::get('cms.twigNoCache');
         $isDebugMode = Config::get('app.debug', false);
+        $forceBytecode = Config::get('cms.forceBytecodeInvalidation', false);
 
         $options = [
             'auto_reload' => true,
             'debug' => $isDebugMode,
         ];
-        if (!Config::get('cms.twigNoCache')) {
-            $options['cache'] =  storage_path().'/cms/twig';
+
+        if ($useCache) {
+            $options['cache'] = new Twig_Cache_Filesystem(
+                storage_path().'/cms/twig',
+                $forceBytecode ? Twig_Cache_Filesystem::FORCE_BYTECODE_INVALIDATION : 0
+            );
         }
 
         $this->twig = new Twig_Environment($this->loader, $options);
@@ -558,8 +559,7 @@ class Controller
         /*
          * Extensibility
          */
-        $this->fireEvent('page.initComponents', [$this->page, $this->layout]);
-        Event::fire('cms.page.initComponents', [$this, $this->page, $this->layout]);
+        $this->fireSystemEvent('cms.page.initComponents', [$this->page, $this->layout]);
     }
 
     //
@@ -624,17 +624,6 @@ class Controller
                 }
 
                 /*
-                 * If the handler returned an array, we should add it to output for rendering.
-                 * If it is a string, add it to the array with the key "result".
-                 */
-                if (is_array($result)) {
-                    $responseContents = array_merge($responseContents, $result);
-                }
-                elseif (is_string($result)) {
-                    $responseContents['result'] = $result;
-                }
-
-                /*
                  * Render partials and return the response as array that will be converted to JSON automatically.
                  */
                 foreach ($partialList as $partial) {
@@ -642,11 +631,33 @@ class Controller
                 }
 
                 /*
-                 * If the handler returned a redirect, process it so framework.js knows to redirect
-                 * the browser and not the request!
+                 * If the handler returned a redirect, process the URL and dispose of it so
+                 * framework.js knows to redirect the browser and not the request!
                  */
                 if ($result instanceof RedirectResponse) {
                     $responseContents['X_OCTOBER_REDIRECT'] = $result->getTargetUrl();
+                    $result = null;
+                }
+                /*
+                 * No redirect is used, look for any flash messages
+                 */
+                elseif (Request::header('X_OCTOBER_REQUEST_FLASH') && Flash::check()) {
+                    $responseContents['X_OCTOBER_FLASH_MESSAGES'] = Flash::all();
+                }
+
+                /*
+                 * If the handler returned an array, we should add it to output for rendering.
+                 * If it is a string, add it to the array with the key "result".
+                 * If an object, pass it to Laravel as a response object.
+                 */
+                if (is_array($result)) {
+                    $responseContents = array_merge($responseContents, $result);
+                }
+                elseif (is_string($result)) {
+                    $responseContents['result'] = $result;
+                }
+                elseif (is_object($result)) {
+                    return $result;
                 }
 
                 return Response::make($responseContents, $this->statusCode);
@@ -670,6 +681,7 @@ class Controller
     /**
      * Tries to find and run an AJAX handler in the page, layout, components and plugins.
      * The method stops as soon as the handler is found.
+     * @param string $handler name of the ajax handler
      * @return boolean Returns true if the handler was found. Returns false otherwise.
      */
     protected function runAjaxHandler($handler)
@@ -712,6 +724,13 @@ class Controller
             }
         }
 
+        /*
+         * Generic handler that does nothing
+         */
+        if ($handler == 'onAjax') {
+            return true;
+        }
+
         return false;
     }
 
@@ -730,10 +749,7 @@ class Controller
         /*
          * Extensibility
          */
-        if (
-            ($event = $this->fireEvent('page.render', [$contents], true)) ||
-            ($event = Event::fire('cms.page.render', [$this, $contents], true))
-        ) {
+        if ($event = $this->fireSystemEvent('cms.page.render', [$contents])) {
             return $event;
         }
 
@@ -743,7 +759,7 @@ class Controller
     /**
      * Renders a requested partial.
      * The framework uses this method internally.
-     * @param string $partial The view to load.
+     * @param string $name The view to load.
      * @param array $parameters Parameter variables to pass to the view.
      * @param bool $throwException Throw an exception if the partial is not found.
      * @return mixed Partial contents or false if not throwing an exception.
@@ -751,6 +767,7 @@ class Controller
     public function renderPartial($name, $parameters = [], $throwException = true)
     {
         $vars = $this->vars;
+        $this->vars = array_merge($this->vars, $parameters);
 
         /*
          * Alias @ symbol for ::
@@ -760,9 +777,15 @@ class Controller
         }
 
         /*
+         * Extensibility
+         */
+        if ($event = $this->fireSystemEvent('cms.page.beforeRenderPartial', [$name])) {
+            $partial = $event;
+        }
+        /*
          * Process Component partial
          */
-        if (strpos($name, '::') !== false) {
+        elseif (strpos($name, '::') !== false) {
 
             list($componentAlias, $partialName) = explode('::', $name);
 
@@ -781,10 +804,10 @@ class Controller
                         return false;
                     }
                 }
+            }
             /*
              * Component alias is supplied
              */
-            }
             else {
                 if (($componentObj = $this->findComponentByName($componentAlias)) === null) {
                     if ($throwException) {
@@ -803,8 +826,7 @@ class Controller
              * Check if the theme has an override
              */
             if (strpos($partialName, '/') === false) {
-                $overrideName = $componentObj->alias . '/' . $partialName;
-                $partial = Partial::loadCached($this->theme, $overrideName);
+                $partial = ComponentPartial::loadOverrideCached($this->theme, $componentObj, $partialName);
             }
 
             /*
@@ -845,7 +867,6 @@ class Controller
         /*
          * Run functions for CMS partials only (Cms\Classes\Partial)
          */
-
         if ($partial instanceof Partial) {
             $this->partialStack->stackPartial();
 
@@ -854,10 +875,11 @@ class Controller
             foreach ($partial->settings['components'] as $component => $properties) {
                 // Do not inject the viewBag component to the environment.
                 // Not sure if they're needed there by the requirements,
-                // but there were problems with array-typed properties used by Static Pages 
+                // but there were problems with array-typed properties used by Static Pages
                 // snippets and setComponentPropertiesFromParams(). --ab
-                if ($component == 'viewBag')
+                if ($component == 'viewBag') {
                     continue;
+                }
 
                 list($name, $alias) = strpos($component, ' ')
                     ? explode(' ', $component)
@@ -893,8 +915,8 @@ class Controller
          */
         CmsException::mask($partial, 400);
         $this->loader->setObject($partial);
-        $template = $this->twig->loadTemplate($partial->getFullPath());
-        $result = $template->render(array_merge($this->vars, $parameters));
+        $template = $this->twig->loadTemplate($partial->getFilePath());
+        $partialContent = $template->render(array_merge($this->vars, $parameters));
         CmsException::unmask();
 
         if ($partial instanceof Partial) {
@@ -902,7 +924,15 @@ class Controller
         }
 
         $this->vars = $vars;
-        return $result;
+
+        /*
+         * Extensibility
+         */
+        if ($event = $this->fireSystemEvent('cms.page.renderPartial', [$name, &$partialContent])) {
+            return $event;
+        }
+
+        return $partialContent;
     }
 
     /**
@@ -917,10 +947,7 @@ class Controller
         /*
          * Extensibility
          */
-        if (
-            ($event = $this->fireEvent('page.beforeRenderContent', [$name], true)) ||
-            ($event = Event::fire('cms.page.beforeRenderContent', [$this, $name], true))
-        ) {
+        if ($event = $this->fireSystemEvent('cms.page.beforeRenderContent', [$name])) {
             $content = $event;
         }
         /*
@@ -933,6 +960,14 @@ class Controller
         $fileContent = $content->parsedMarkup;
 
         /*
+         * Inject global view variables
+         */
+        $globalVars = ViewHelper::getGlobalVars();
+        if (!empty($globalVars)) {
+            $parameters = (array) $parameters + $globalVars;
+        }
+
+        /*
          * Parse basic template variables
          */
         if (!empty($parameters)) {
@@ -942,10 +977,7 @@ class Controller
         /*
          * Extensibility
          */
-        if (
-            ($event = $this->fireEvent('page.renderContent', [$name, $fileContent], true)) ||
-            ($event = Event::fire('cms.page.renderContent', [$this, $name, $fileContent], true))
-        ) {
+        if ($event = $this->fireSystemEvent('cms.page.renderContent', [$name, &$fileContent])) {
             return $event;
         }
 
@@ -953,20 +985,29 @@ class Controller
     }
 
     /**
-     * Renders a component's default content.
+     * Renders a component's default content, preserves the previous component context.
+     * @param $name
+     * @param array $parameters
      * @return string Returns the component default contents.
      */
     public function renderComponent($name, $parameters = [])
     {
+        $result = null;
+        $previousContext = $this->componentContext;
+
         if ($componentObj = $this->findComponentByName($name)) {
             $componentObj->id = uniqid($name);
             $componentObj->setProperties(array_merge($componentObj->getProperties(), $parameters));
-            if ($result = $componentObj->onRender()) {
-                return $result;
-            }
+            $this->componentContext = $componentObj;
+            $result = $componentObj->onRender();
         }
 
-        return $this->renderPartial($name.'::default', [], false);
+        if (!$result) {
+            $result = $this->renderPartial($name.'::default', [], false);
+        }
+
+        $this->componentContext = $previousContext;
+        return $result;
     }
 
     //
@@ -976,7 +1017,7 @@ class Controller
     /**
      * Sets the status code for the current web response.
      * @param int $code Status code
-     * @return \Cms\Classes\Controller $this
+     * @return self
      */
     public function setStatusCode($code)
     {
@@ -987,6 +1028,15 @@ class Controller
     //
     // Getters
     //
+
+     /**
+     * Returns the status code for the current web response.
+     * @return int Status code
+     */
+    public function getStatusCode()
+    {
+        return $this->statusCode;
+    }
 
     /**
      * Returns an existing instance of the controller.
@@ -1018,7 +1068,7 @@ class Controller
 
     /**
      * Returns the Twig loader.
-     * @return Cms\Twig\Loader
+     * @return \Cms\Twig\Loader
      */
     public function getLoader()
     {
@@ -1086,6 +1136,9 @@ class Controller
          */
         if (is_bool($parameters)) {
             $routePersistence = $parameters;
+        }
+
+        if (!is_array($parameters)) {
             $parameters = [];
         }
 
@@ -1097,23 +1150,14 @@ class Controller
             return null;
         }
 
-        if (substr($url, 0, 1) == '/') {
-            $url = substr($url, 1);
-        }
-
-        $routeAction = 'Cms\Classes\CmsController@run';
-        $actionExists = Route::getRoutes()->getByAction($routeAction) !== null;
-
-        if ($actionExists) {
-            return URL::action($routeAction, ['slug' => $url]);
-        }
-        else {
-            return URL::to($url);
-        }
+        return Cms::url($url);
     }
 
     /**
      * Looks up the current page URL with supplied parameters and route persistence.
+     * @param array $parameters
+     * @param bool $routePersistence
+     * @return null|string
      */
     public function currentPageUrl($parameters = [], $routePersistence = true)
     {
@@ -1135,33 +1179,23 @@ class Controller
         $themeDir = $this->getTheme()->getDirName();
 
         if (is_array($url)) {
-            $_url = URL::to(CombineAssets::combine($url, themes_path().'/'.$themeDir));
+            $_url = Url::to(CombineAssets::combine($url, themes_path().'/'.$themeDir));
         }
         else {
             $_url = Config::get('cms.themesPath', '/themes').'/'.$themeDir;
             if ($url !== null) {
                 $_url .= '/'.$url;
             }
-            $_url = URL::asset($_url);
+            $_url = Url::asset($_url);
         }
 
         return $_url;
     }
 
     /**
-     * Converts supplied file to a URL relative to the media library.
-     * @param string $file Specifies the media-relative file
-     * @return string
-     */
-    public function mediaUrl($file = null)
-    {
-        return MediaLibrary::url($file);
-    }
-
-    /**
      * Returns a routing parameter.
-     * @param string Routing parameter name.
-     * @param string Default to use if none is found.
+     * @param string $name Routing parameter name.
+     * @param string $default Default to use if none is found.
      * @return string
      */
     public function param($name, $default = null)
@@ -1209,6 +1243,7 @@ class Controller
 
     /**
      * Searches the layout and page components by an alias
+     * @param $name
      * @return ComponentBase The component object, if found
      */
     public function findComponentByName($name)
@@ -1231,18 +1266,19 @@ class Controller
 
     /**
      * Searches the layout and page components by an AJAX handler
+     * @param string $handler
      * @return ComponentBase The component object, if found
      */
     public function findComponentByHandler($handler)
     {
         foreach ($this->page->components as $component) {
-            if (method_exists($component, $handler)) {
+            if ($component->methodExists($handler)) {
                 return $component;
             }
         }
 
         foreach ($this->layout->components as $component) {
-            if (method_exists($component, $handler)) {
+            if ($component->methodExists($handler)) {
                 return $component;
             }
         }
@@ -1252,28 +1288,19 @@ class Controller
 
     /**
      * Searches the layout and page components by a partial file
+     * @param string $partial
      * @return ComponentBase The component object, if found
      */
     public function findComponentByPartial($partial)
     {
         foreach ($this->page->components as $component) {
-            $fileName = ComponentPartial::getFilePath($component, $partial);
-            if (!strlen(File::extension($fileName))) {
-                $fileName .= '.htm';
-            }
-
-            if (File::isFile($fileName)) {
+            if (ComponentPartial::check($component, $partial)) {
                 return $component;
             }
         }
 
         foreach ($this->layout->components as $component) {
-            $fileName = ComponentPartial::getFilePath($component, $partial);
-            if (!strlen(File::extension($fileName))) {
-                $fileName .= '.htm';
-            }
-
-            if (File::isFile($fileName)) {
+            if (ComponentPartial::check($component, $partial)) {
                 return $component;
             }
         }
@@ -1296,7 +1323,6 @@ class Controller
      * The property values should be defined as {{ param }}.
      * @param ComponentBase $component The component object.
      * @param array $parameters Specifies the partial parameters.
-     * @return Returns updated properties.
      */
     protected function setComponentPropertiesFromParams($component, $parameters = [])
     {
@@ -1329,5 +1355,37 @@ class Controller
                 $component->setExternalPropertyName($propertyName, $paramName);
             }
         }
+    }
+
+    //
+    // Security
+    //
+
+    /**
+     * Checks the request data / headers for a valid CSRF token.
+     * Returns false if a valid token is not found. Override this
+     * method to disable the check.
+     * @return bool
+     */
+    protected function verifyCsrfToken()
+    {
+        if (!Config::get('cms.enableCsrfProtection')) {
+            return true;
+        }
+
+        if (in_array(Request::method(), ['HEAD', 'GET', 'OPTIONS'])) {
+            return true;
+        }
+
+        $token = Request::input('_token') ?: Request::header('X-CSRF-TOKEN');
+
+        if (!strlen($token)) {
+            return false;
+        }
+
+        return hash_equals(
+            Session::token(),
+            $token
+        );
     }
 }

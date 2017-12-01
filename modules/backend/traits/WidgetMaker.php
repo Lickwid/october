@@ -2,26 +2,24 @@
 
 use Lang;
 use Backend\Classes\FormField;
-use Backend\Classes\WidgetManager;
 use SystemException;
 
 /**
- * Config Maker Trait
+ * Widget Maker Trait
  *
- * Adds widget based methods to a controller class, or a class that contains a 
- * $controller property referencing a controller.
+ * Adds widget based methods to a controller class, or a class that
+ * contains a `$controller` property referencing a controller.
  *
  * @package october\backend
  * @author Alexey Bobkov, Samuel Georges
  */
-
 trait WidgetMaker
 {
     /**
      * Makes a widget object with the supplied configuration file.
      * @param string $class Widget class name
      * @param array $widgetConfig An array of config.
-     * @return WidgetBase The widget object
+     * @return \Backend\Classes\WidgetBase The widget object
      */
     public function makeWidget($class, $widgetConfig = [])
     {
@@ -43,7 +41,7 @@ trait WidgetMaker
      * @param string $class Widget class name
      * @param mixed $fieldConfig A field name, an array of config or a FormField object.
      * @param array $widgetConfig An array of config.
-     * @return FormWidgetBase The widget object
+     * @return \Backend\Classes\FormWidgetBase The widget object
      */
     public function makeFormWidget($class, $fieldConfig = [], $widgetConfig = [])
     {

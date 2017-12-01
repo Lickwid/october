@@ -3,15 +3,23 @@
 use Str;
 use App;
 use File;
+use View;
 use Config;
+use Response;
 use Illuminate\Routing\Controller as ControllerBase;
 use October\Rain\Router\Helper as RouterHelper;
 use Closure;
 
 /**
- * The Backend controller class.
- * The base controller services back end pages.
+ * This is the master controller for all back-end pages.
+ * All requests that are prefixed with the backend URI pattern are sent here,
+ * then the next URI segments are analysed and the request is routed to the
+ * relevant back-end controller.
  *
+ * For example, a request with the URL `/backend/acme/blog/posts` will look
+ * for the `Posts` controller inside the `Acme.Blog` plugin.
+ *
+ * @see Backend\Classes\Controller Base class for back-end controllers
  * @package october\backend
  * @author Alexey Bobkov, Samuel Georges
  */
@@ -61,6 +69,15 @@ class BackendController extends ControllerBase
     public function run($url = null)
     {
         $params = RouterHelper::segmentizeUrl($url);
+
+        /*
+         * Database check
+         */
+        if (!App::hasDatabase()) {
+            return Config::get('app.debug', false)
+                ? Response::make(View::make('backend::no_database'), 200)
+                : App::make('Cms\Classes\Controller')->run($url);
+        }
 
         /*
          * Look for a Module controller

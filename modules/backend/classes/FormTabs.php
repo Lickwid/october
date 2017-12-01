@@ -1,6 +1,5 @@
 <?php namespace Backend\Classes;
 
-use Str;
 use IteratorAggregate;
 use ArrayIterator;
 use ArrayAccess;
@@ -49,6 +48,11 @@ class FormTabs implements IteratorAggregate, ArrayAccess
     public $cssClass;
 
     /**
+     * @var array Specifies a CSS class to an individual tab pane.
+     */
+    public $paneCssClass;
+
+    /**
      * Constructor.
      * Specifies a tabs rendering section. Supported sections are:
      * - outside - stores a section of "tabless" fields.
@@ -88,6 +92,10 @@ class FormTabs implements IteratorAggregate, ArrayAccess
 
         if (array_key_exists('cssClass', $config)) {
             $this->cssClass = $config['cssClass'];
+        }
+
+        if (array_key_exists('paneCssClass', $config)) {
+            $this->paneCssClass = $config['paneCssClass'];
         }
     }
 
@@ -134,21 +142,6 @@ class FormTabs implements IteratorAggregate, ArrayAccess
     }
 
     /**
-     * Returns an array of the registered fields, without tabs.
-     * @return array
-     */
-    public function getFields()
-    {
-        $tablessFields = [];
-
-        foreach ($this->getTabs() as $tab) {
-            $tablessFields += $tab;
-        }
-
-        return $tablessFields;
-    }
-
-    /**
      * Returns true if any fields have been registered for these tabs
      * @return boolean
      */
@@ -161,9 +154,41 @@ class FormTabs implements IteratorAggregate, ArrayAccess
      * Returns an array of the registered fields, including tabs.
      * @return array
      */
-    public function getTabs()
+    public function getFields()
     {
         return $this->fields;
+    }
+
+    /**
+     * Returns an array of the registered fields, without tabs.
+     * @return array
+     */
+    public function getAllFields()
+    {
+        $tablessFields = [];
+
+        foreach ($this->getFields() as $tab) {
+            $tablessFields += $tab;
+        }
+
+        return $tablessFields;
+    }
+
+    /**
+     * Returns a tab pane CSS class.
+     * @param string $index
+     * @param string $label
+     * @return string
+     */
+    public function getPaneCssClass($index = null, $label = null)
+    {
+        if ($index !== null && isset($this->paneCssClass[$index])) {
+            return $this->paneCssClass[$index];
+        }
+
+        if ($label !== null && isset($this->paneCssClass[$label])) {
+            return $this->paneCssClass[$label];
+        }
     }
 
     /**
@@ -173,8 +198,8 @@ class FormTabs implements IteratorAggregate, ArrayAccess
     public function getIterator()
     {
         return new ArrayIterator($this->suppressTabs
-            ? $this->getFields()
-            : $this->getTabs()
+            ? $this->getAllFields()
+            : $this->getFields()
         );
     }
 

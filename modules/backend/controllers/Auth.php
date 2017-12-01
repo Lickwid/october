@@ -3,11 +3,8 @@
 use Mail;
 use Flash;
 use Backend;
-use Redirect;
 use Validator;
 use BackendAuth;
-use BackendMenu;
-use Backend\Models\User;
 use Backend\Models\AccessLog;
 use Backend\Classes\Controller;
 use System\Classes\UpdateManager;
@@ -24,8 +21,14 @@ use Exception;
  */
 class Auth extends Controller
 {
+    /**
+     * @var array Public controller actions
+     */
     protected $publicActions = ['index', 'signin', 'signout', 'restore', 'reset'];
 
+    /**
+     * Constructor.
+     */
     public function __construct()
     {
         parent::__construct();
@@ -63,8 +66,8 @@ class Auth extends Controller
     public function signin_onSubmit()
     {
         $rules = [
-            'login'    => 'required|min:2|max:32',
-            'password' => 'required|min:4'
+            'login'    => 'required|between:2,255',
+            'password' => 'required|between:4,255'
         ];
 
         $validation = Validator::make(post(), $rules);
@@ -72,14 +75,23 @@ class Auth extends Controller
             throw new ValidationException($validation);
         }
 
+        if (is_null($remember = config('cms.backendForceRemember', true))) {
+            $remember = (bool) post('remember');
+        }
+
         // Authenticate user
         $user = BackendAuth::authenticate([
             'login' => post('login'),
             'password' => post('password')
-        ], true);
+        ], $remember);
 
-        // Load version updates
-        UpdateManager::instance()->update();
+        try {
+            // Load version updates
+            UpdateManager::instance()->update();
+        }
+        catch (Exception $ex) {
+            Flash::error($ex->getMessage());
+        }
 
         // Log the sign in event
         AccessLog::add($user);
@@ -115,7 +127,7 @@ class Auth extends Controller
     public function restore_onSubmit()
     {
         $rules = [
-            'login' => 'required|min:2|max:32'
+            'login' => 'required|between:2,255'
         ];
 
         $validation = Validator::make(post(), $rules);
@@ -176,7 +188,7 @@ class Auth extends Controller
         }
 
         $rules = [
-            'password' => 'required|min:4'
+            'password' => 'required|between:4,255'
         ];
 
         $validation = Validator::make(post(), $rules);

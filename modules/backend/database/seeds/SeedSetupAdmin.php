@@ -2,11 +2,11 @@
 
 use Seeder;
 use Backend\Models\User;
+use Backend\Models\UserRole;
 use Backend\Models\UserGroup;
 
 class SeedSetupAdmin extends Seeder
 {
-
     public static $email = 'admin@domain.tld';
     public static $login = 'admin';
     public static $password = 'admin';
@@ -25,9 +25,21 @@ class SeedSetupAdmin extends Seeder
 
     public function run()
     {
+        UserRole::create([
+            'name' => 'Publisher',
+            'code' => UserRole::CODE_PUBLISHER,
+            'description' => 'Site editor with access to publishing tools.',
+        ]);
+
+        $role = UserRole::create([
+            'name' => 'Developer',
+            'code' => UserRole::CODE_DEVELOPER,
+            'description' => 'Site administrator with access to developer tools.',
+        ]);
+
         $group = UserGroup::create([
             'name' => 'Owners',
-            'code' => UserGroup::DEFAULT_CODE,
+            'code' => UserGroup::CODE_OWNERS,
             'description' => 'Default group for website owners.',
             'is_new_user_default' => false
         ]);
@@ -39,11 +51,12 @@ class SeedSetupAdmin extends Seeder
             'password_confirmation' => static::$password,
             'first_name'            => static::$firstName,
             'last_name'             => static::$lastName,
-            'permissions'           => ['superuser' => 1],
-            'is_activated'          => true
+            'permissions'           => [],
+            'is_superuser'          => true,
+            'is_activated'          => true,
+            'role_id'               => $role->id
         ]);
 
         $user->addGroup($group);
     }
-
 }

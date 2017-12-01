@@ -3,14 +3,24 @@
 use Str;
 use Lang;
 use Event;
+use Flash;
 use ApplicationException;
 use Backend\Classes\ControllerBehavior;
-use League\Csv\Writer;
-use SplTempFileObject;
 
 /**
- * List Controller Behavior
  * Adds features for working with backend lists.
+ *
+ * This behavior is implemented in the controller like so:
+ *
+ *     public $implement = [
+ *         'Backend.Behaviors.ListController',
+ *     ];
+ *
+ *     public $listConfig = 'config_list.yaml';
+ *
+ * The `$listConfig` property makes reference to the list configuration
+ * values as either a YAML file, located in the controller view directory,
+ * or directly as a PHP array.
  *
  * @package october\backend
  * @author Alexey Bobkov, Samuel Georges
@@ -28,22 +38,27 @@ class ListController extends ControllerBehavior
     protected $primaryDefinition;
 
     /**
-     * @var Backend\Classes\WidgetBase Reference to the list widget object.
+     * @var array List configuration, keys for alias and value for config objects.
+     */
+    protected $listConfig = [];
+
+    /**
+     * @var \Backend\Classes\WidgetBase Reference to the list widget object.
      */
     protected $listWidgets = [];
 
     /**
-     * @var WidgetBase Reference to the toolbar widget objects.
+     * @var \Backend\Classes\WidgetBase Reference to the toolbar widget objects.
      */
     protected $toolbarWidgets = [];
 
     /**
-     * @var WidgetBase Reference to the filter widget objects.
+     * @var \Backend\Classes\WidgetBase Reference to the filter widget objects.
      */
     protected $filterWidgets = [];
 
     /**
-     * {@inheritDoc}
+     * @inheritDoc
      */
     protected $requiredProperties = ['listConfig'];
 
@@ -56,7 +71,7 @@ class ListController extends ControllerBehavior
 
     /**
      * Behavior constructor
-     * @param Backend\Classes\Controller $controller
+     * @param \Backend\Classes\Controller $controller
      */
     public function __construct($controller)
     {
@@ -103,13 +118,13 @@ class ListController extends ControllerBehavior
             $definition = $this->primaryDefinition;
         }
 
-        $listConfig = $this->makeConfig($this->listDefinitions[$definition], $this->requiredConfig);
+        $listConfig = $this->controller->listGetConfig($definition);
 
         /*
          * Create the model
          */
         $class = $listConfig->modelClass;
-        $model = new $class();
+        $model = new $class;
         $model = $this->controller->listExtendModel($model, $definition);
 
         /*
@@ -126,6 +141,7 @@ class ListController extends ControllerBehavior
             'recordUrl',
             'recordOnClick',
             'recordsPerPage',
+            'showPageNumbers',
             'noRecordsMessage',
             'defaultSort',
             'showSorting',
@@ -133,6 +149,7 @@ class ListController extends ControllerBehavior
             'showCheckboxes',
             'showTree',
             'treeExpanded',
+            'customViewPath',
         ];
 
         foreach ($configFieldsToTransfer as $field) {
@@ -156,6 +173,10 @@ class ListController extends ControllerBehavior
 
         $widget->bindEvent('list.extendQuery', function ($query) use ($definition) {
             $this->controller->listExtendQuery($query, $definition);
+        });
+
+        $widget->bindEvent('list.extendRecords', function ($records) use ($definition) {
+            return $this->controller->listExtendRecords($records, $definition);
         });
 
         $widget->bindEvent('list.injectRowClass', function ($record) use ($definition) {
@@ -191,6 +212,11 @@ class ListController extends ControllerBehavior
                     return $widget->onRefresh();
                 });
 
+                $widget->setSearchOptions([
+                    'mode' => $searchWidget->mode,
+                    'scope' => $searchWidget->scope,
+                ]);
+
                 // Find predefined search term
                 $widget->setSearchTerm($searchWidget->getActiveTerm());
             }
@@ -213,14 +239,20 @@ class ListController extends ControllerBehavior
              * Filter the list when the scopes are changed
              */
             $filterWidget->bindEvent('filter.update', function () use ($widget, $filterWidget) {
-                $widget->addFilter([$filterWidget, 'applyAllScopesToQuery']);
                 return $widget->onRefresh();
+            });
+
+            /*
+             * Filter Widget with extensibility
+             */
+            $filterWidget->bindEvent('filter.extendScopes', function () use ($filterWidget) {
+                $this->controller->listFilterExtendScopes($filterWidget);
             });
 
             /*
              * Extend the query of the list of options
              */
-            $filterWidget->bindEvent('filter.extendQuery', function($query, $scope) {
+            $filterWidget->bindEvent('filter.extendQuery', function ($query, $scope) {
                 $this->controller->listFilterExtendQuery($query, $scope);
             });
 
@@ -248,6 +280,72 @@ class ListController extends ControllerBehavior
     }
 
     /**
+     * Bulk delete records.
+     * @return void
+     */
+    public function index_onDelete()
+    {
+        if (method_exists($this->controller, 'onDelete')) {
+            return call_user_func_array([$this->controller, 'onDelete'], func_get_args());
+        }
+
+        /*
+         * Validate checked identifiers
+         */
+        $checkedIds = post('checked');
+
+        if (!$checkedIds || !is_array($checkedIds) || !count($checkedIds)) {
+            Flash::error(Lang::get('backend::lang.list.delete_selected_empty'));
+            return $this->controller->listRefresh();
+        }
+
+        /*
+         * Establish the list definition
+         */
+        $definition = post('definition', $this->primaryDefinition);
+
+        if (!isset($this->listDefinitions[$definition])) {
+            throw new ApplicationException(Lang::get('backend::lang.list.missing_parent_definition', compact('definition')));
+        }
+
+        $listConfig = $this->controller->listGetConfig($definition);
+
+        /*
+         * Create the model
+         */
+        $class = $listConfig->modelClass;
+        $model = new $class;
+        $model = $this->controller->listExtendModel($model, $definition);
+
+        /*
+         * Create the query
+         */
+        $query = $model->newQuery();
+        $this->controller->listExtendQueryBefore($query, $definition);
+
+        $query->whereIn($model->getKeyName(), $checkedIds);
+        $this->controller->listExtendQuery($query, $definition);
+
+        /*
+         * Delete records
+         */
+        $records = $query->get();
+
+        if ($records->count()) {
+            foreach ($records as $record) {
+                $record->delete();
+            }
+
+            Flash::success(Lang::get('backend::lang.list.delete_selected_success'));
+        }
+        else {
+            Flash::error(Lang::get('backend::lang.list.delete_selected_empty'));
+        }
+
+        return $this->controller->listRefresh($definition);
+    }
+
+    /**
      * Renders the widget collection.
      * @param  string $definition Optional list definition.
      * @return string Rendered HTML for the list.
@@ -262,19 +360,41 @@ class ListController extends ControllerBehavior
             $definition = $this->primaryDefinition;
         }
 
-        $collection = [];
+        $listConfig = $this->controller->listGetConfig($definition);
+
+        $vars = [
+            'toolbar' => null,
+            'filter' => null,
+            'list' => null,
+        ];
 
         if (isset($this->toolbarWidgets[$definition])) {
-            $collection[] = $this->toolbarWidgets[$definition]->render();
+            $vars['toolbar'] = $this->toolbarWidgets[$definition];
         }
 
         if (isset($this->filterWidgets[$definition])) {
-            $collection[] = $this->filterWidgets[$definition]->render();
+            $vars['filter'] = $this->filterWidgets[$definition];
         }
 
-        $collection[] = $this->listWidgets[$definition]->render();
+        $vars['list'] = $this->listWidgets[$definition];
 
-        return implode(PHP_EOL, $collection);
+        return $this->listMakePartial('container', $vars);
+    }
+
+    /**
+     * Controller accessor for making partials within this behavior.
+     * @param string $partial
+     * @param array $params
+     * @return string Partial contents
+     */
+    public function listMakePartial($partial, $params = [])
+    {
+        $contents = $this->controller->makePartial('list_'.$partial, $params + $this->vars, false);
+        if (!$contents) {
+            $contents = $this->makePartial($partial, $params);
+        }
+
+        return $contents;
     }
 
     /**
@@ -297,7 +417,7 @@ class ListController extends ControllerBehavior
 
     /**
      * Returns the widget used by this behavior.
-     * @return Backend\Classes\WidgetBase
+     * @return \Backend\Classes\WidgetBase
      */
     public function listGetWidget($definition = null)
     {
@@ -308,25 +428,42 @@ class ListController extends ControllerBehavior
         return array_get($this->listWidgets, $definition);
     }
 
+    /**
+     * Returns the configuration used by this behavior.
+     * @return \Backend\Classes\WidgetBase
+     */
+    public function listGetConfig($definition = null)
+    {
+        if (!$definition) {
+            $definition = $this->primaryDefinition;
+        }
+
+        if (!$config = array_get($this->listConfig, $definition)) {
+            $config = $this->listConfig[$definition] = $this->makeConfig($this->listDefinitions[$definition], $this->requiredConfig);
+        }
+
+        return $config;
+    }
+
     //
     // Overrides
     //
 
     /**
-     * Called before the list columns are defined.
-     * @param Backend\Widgets\List $host The hosting list widget
-     * @return void
-     */
-    // public function listExtendColumnsBefore($host)
-    // {
-    // }
-
-    /**
      * Called after the list columns are defined.
-     * @param Backend\Widgets\List $host The hosting list widget
+     * @param \Backend\Widgets\List $host The hosting list widget
      * @return void
      */
     public function listExtendColumns($host)
+    {
+    }
+
+    /**
+     * Called after the filter scopes are defined.
+     * @param \Backend\Widgets\Filter $host The hosting filter widget
+     * @return void
+     */
+    public function listFilterExtendScopes($host)
     {
     }
 
@@ -343,7 +480,7 @@ class ListController extends ControllerBehavior
     /**
      * Controller override: Extend the query used for populating the list
      * before the default query is processed.
-     * @param October\Rain\Database\Builder $query
+     * @param \October\Rain\Database\Builder $query
      */
     public function listExtendQueryBefore($query, $definition = null)
     {
@@ -352,16 +489,25 @@ class ListController extends ControllerBehavior
     /**
      * Controller override: Extend the query used for populating the list
      * after the default query is processed.
-     * @param October\Rain\Database\Builder $query
+     * @param \October\Rain\Database\Builder $query
      */
     public function listExtendQuery($query, $definition = null)
     {
     }
 
     /**
-     * Controller override: Extend the query used for populating the filter 
+     * Controller override: Extend the records used for populating the list
+     * after the query is processed.
+     * @param Illuminate\Contracts\Pagination\LengthAwarePaginator|Illuminate\Database\Eloquent\Collection $records
+     */
+    public function listExtendRecords($records, $definition = null)
+    {
+    }
+
+    /**
+     * Controller override: Extend the query used for populating the filter
      * options before the default query is processed.
-     * @param October\Rain\Database\Builder $query
+     * @param \October\Rain\Database\Builder $query
      * @param array $scope
      */
     public function listFilterExtendQuery($query, $scope)
@@ -372,7 +518,7 @@ class ListController extends ControllerBehavior
      * Returns a CSS class name for a list row (<tr class="...">).
      * @param  Model $record The populated model used for the column
      * @param  string $definition List definition (optional)
-     * @return string HTML view
+     * @return string CSS class name
      */
     public function listInjectRowClass($record, $definition = null)
     {
@@ -412,6 +558,22 @@ class ListController extends ControllerBehavior
                 return;
             }
             call_user_func_array($callback, [$widget, $widget->model]);
+        });
+    }
+
+     /**
+     * Static helper for extending filter scopes.
+     * @param  callable $callback
+     * @return void
+     */
+    public static function extendListFilterScopes($callback)
+    {
+        $calledClass = self::getCalledExtensionClass();
+        Event::listen('backend.filter.extendScopes', function ($widget) use ($calledClass, $callback) {
+            if (!is_a($widget->getController(), $calledClass)) {
+                return;
+            }
+            call_user_func_array($callback, [$widget]);
         });
     }
 }

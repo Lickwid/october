@@ -1,7 +1,7 @@
 <?php namespace Cms\Classes;
 
 use ApplicationException;
-use Illuminate\Support\Collection as CollectionBase;
+use October\Rain\Support\Collection as CollectionBase;
 
 /**
  * This class represents a collection of Cms Objects.
@@ -13,12 +13,13 @@ class CmsObjectCollection extends CollectionBase
 {
     /**
      * Returns objects that use the supplied component.
-     * @param  string|array  $components
+     * @param  string|array $components
+     * @param null|callback $callback
      * @return static
      */
     public function withComponent($components, $callback = null)
     {
-        return $this->filter(function($object) use ($components, $callback) {
+        return $this->filter(function ($object) use ($components, $callback) {
 
             $hasComponent = false;
 
@@ -41,11 +42,12 @@ class CmsObjectCollection extends CollectionBase
      * Returns objects whose properties match the supplied value.
      * @param string $property
      * @param string $value
+     * @param bool $strict
      * @return static
      */
     public function where($property, $value, $strict = true)
     {
-        return $this->filter(function($object) use ($property, $value, $strict) {
+        return $this->filter(function ($object) use ($property, $value, $strict) {
 
             if (!array_key_exists($property, $object->settings)) {
                 return false;
@@ -59,13 +61,15 @@ class CmsObjectCollection extends CollectionBase
 
     /**
      * Returns objects whose component properties match the supplied value.
+     * @param mixed $components
      * @param string $property
      * @param string $value
+     * @param bool $strict
      * @return static
      */
     public function whereComponent($components, $property, $value, $strict = false)
     {
-        return $this->filter(function($object) use ($components, $property, $value, $strict) {
+        return $this->filter(function ($object) use ($components, $property, $value, $strict) {
 
             $hasComponent = false;
 

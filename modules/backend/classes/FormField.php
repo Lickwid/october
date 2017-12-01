@@ -24,8 +24,9 @@ class FormField
     public $fieldName;
 
     /**
-     * @var string If the field element names should be contained in an array.
-     * Eg: <input name="nameArray[fieldName]" />
+     * @var string If the field element names should be contained in an array. Eg:
+     *
+     *     <input name="nameArray[fieldName]" />
      */
     public $arrayName;
 
@@ -92,7 +93,12 @@ class FormField
     /**
      * @var bool Specifies if this field is mandatory.
      */
-    public $required = false;
+    public $required = null;
+
+    /**
+     * @var bool Specify if the field is read-only or not.
+     */
+    public $readOnly = false;
 
     /**
      * @var bool Specify if the field is disabled or not.
@@ -262,17 +268,19 @@ class FormField
          * Standard config:property values
          */
         $applyConfigValues = [
-            'context',
+            'commentHtml',
             'placeholder',
-            'cssClass',
             'dependsOn',
+            'required',
+            'readOnly',
+            'disabled',
+            'cssClass',
+            'stretch',
+            'context',
+            'hidden',
             'trigger',
             'preset',
             'path',
-            'required',
-            'disabled',
-            'hidden',
-            'stretch',
         ];
 
         foreach ($applyConfigValues as $value) {
@@ -332,12 +340,30 @@ class FormField
      * @param bool $isHtml Set to true if you use HTML formatting in the comment
      * Supported values are 'below' and 'above'
      */
-    public function comment($text, $position = 'below', $isHtml = false)
+    public function comment($text, $position = 'below', $isHtml = null)
     {
         $this->comment = $text;
         $this->commentPosition = $position;
-        $this->commentHtml = $isHtml;
+
+        if ($isHtml !== null) {
+            $this->commentHtml = $isHtml;
+        }
+
         return $this;
+    }
+
+    /**
+     * Determine if the provided value matches this field's value.
+     * @param string $value
+     * @return bool
+     */
+    public function isSelected($value = true)
+    {
+        if ($this->value === null) {
+            return false;
+        }
+
+        return (string) $value === (string) $this->value;
     }
 
     /**
@@ -410,6 +436,10 @@ class FormField
 
         if ($position == 'field' && $this->disabled) {
             $attributes = $attributes + ['disabled' => 'disabled'];
+        }
+
+        if ($position == 'field' && $this->readOnly) {
+            $attributes = $attributes + ['readonly' => 'readonly'];
         }
 
         return $attributes;
@@ -544,6 +574,17 @@ class FormField
     }
 
     /**
+     * Returns a raw config item value.
+     * @param  string $value
+     * @param  string $default
+     * @return mixed
+     */
+    public function getConfig($value, $default = null)
+    {
+        return array_get($this->config, $value, $default);
+    }
+
+    /**
      * Returns this fields value from a supplied data set, which can be
      * an array or a model or another generic collection.
      * @param mixed $data
@@ -576,8 +617,10 @@ class FormField
     }
 
     /**
-     * Returns the final model and attribute name of a nested attribute.
-     * Eg: list($model, $attribute) = $this->resolveAttribute('person[phone]');
+     * Returns the final model and attribute name of a nested attribute. Eg:
+     *
+     *     list($model, $attribute) = $this->resolveAttribute('person[phone]');
+     *
      * @param  string $attribute.
      * @return array
      */

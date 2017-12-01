@@ -10,14 +10,14 @@ use SystemException;
  * Table Widget.
  *
  * Represents an editable tabular control.
- * 
+ *
  * @package october\backend
  * @author Alexey Bobkov, Samuel Georges
  */
 class Table extends WidgetBase
 {
     /**
-     * {@inheritDoc}
+     * @inheritDoc
      */
     protected $defaultAlias = 'table';
 
@@ -31,12 +31,24 @@ class Table extends WidgetBase
      */
     protected $showHeader = true;
 
+    /**
+     * @var Backend\Widgets\Table\DatasourceBase
+     */
     protected $dataSource = null;
 
+    /**
+     * @var string Field name used for request data.
+     */
+    protected $fieldName = null;
+
+    /**
+     * @var string
+     */
     protected $recordsKeyFrom;
 
     protected $dataSourceAliases = [
-        'client' => '\Backend\Classes\TableClientMemoryDataSource'
+        'client' => '\Backend\Widgets\Table\ClientMemoryDataSource',
+        'server' => '\Backend\Widgets\Table\ServerEventDataSource'
     ];
 
     /**
@@ -45,6 +57,8 @@ class Table extends WidgetBase
     public function init()
     {
         $this->columns = $this->getConfig('columns', []);
+
+        $this->fieldName = $this->getConfig('fieldName', $this->alias);
 
         $this->recordsKeyFrom = $this->getConfig('keyFrom', 'id');
 
@@ -64,10 +78,12 @@ class Table extends WidgetBase
         $this->dataSource = new $dataSourceClass($this->recordsKeyFrom);
 
         if (Request::method() == 'POST' && $this->isClientDataSource()) {
-            if (strpos($this->alias, '[') === false)
-                $requestDataField = $this->alias.'TableData';
-            else
-                $requestDataField = $this->alias.'[TableData]';
+            if (strpos($this->fieldName, '[') === false) {
+                $requestDataField = $this->fieldName.'TableData';
+            }
+            else {
+                $requestDataField = $this->fieldName.'[TableData]';
+            }
 
             if (Request::exists($requestDataField)) {
                 // Load data into the client memory data source on POST
@@ -79,7 +95,7 @@ class Table extends WidgetBase
 
     /**
      * Returns the data source object.
-     * @return \Backend\Classes\TableDataSourceBase 
+     * @return \Backend\Widgets\Table\DataSourceBase
      */
     public function getDataSource()
     {
@@ -105,6 +121,7 @@ class Table extends WidgetBase
 
         $this->vars['recordsPerPage'] = $this->getConfig('recordsPerPage', false) ?: 'false';
         $this->vars['postbackHandlerName'] = $this->getConfig('postbackHandlerName', 'onSave');
+        $this->vars['searching'] = $this->getConfig('searching', false);
         $this->vars['adding'] = $this->getConfig('adding', true);
         $this->vars['deleting'] = $this->getConfig('deleting', true);
         $this->vars['toolbar'] = $this->getConfig('toolbar', true);
@@ -118,9 +135,10 @@ class Table extends WidgetBase
         $isClientDataSource = $this->isClientDataSource();
 
         $this->vars['clientDataSourceClass'] = $isClientDataSource ? 'client' : 'server';
-        $this->vars['data'] = $isClientDataSource
-            ? json_encode($this->dataSource->getAllRecords())
-            : [];
+        $this->vars['data'] = json_encode($isClientDataSource
+            ? $this->dataSource->getAllRecords()
+            : []
+        );
     }
 
     //
@@ -128,7 +146,7 @@ class Table extends WidgetBase
     //
 
     /**
-     * {@inheritDoc}
+     * @inheritDoc
      */
     protected function loadAssets()
     {
@@ -139,7 +157,7 @@ class Table extends WidgetBase
     /**
      * Converts the columns associative array to a regular array and translates column headers and drop-down options.
      * Working with regular arrays is much faster in JavaScript.
-     * References: 
+     * References:
      * - http://www.smashingmagazine.com/2012/11/05/writing-fast-memory-efficient-javascript/
      * - http://jsperf.com/performance-of-array-vs-object/3
      */
@@ -174,12 +192,91 @@ class Table extends WidgetBase
 
     protected function isClientDataSource()
     {
-        return $this->dataSource instanceof \Backend\Classes\TableClientMemoryDataSource;
+        return $this->dataSource instanceof \Backend\Widgets\Table\ClientMemoryDataSource;
     }
 
-    /*
-     * Event handlers
-     */
+    //
+    // Event handlers
+    //
+
+    public function onServerGetRecords()
+    {
+        // Disable asset broadcasting
+        $this->controller->flushAssets();
+
+        if ($this->isClientDataSource()) {
+            throw new SystemException('The Table widget is not configured to use the server data source.');
+        }
+
+        $count = post('count');
+
+        // Oddly, JS may pass false as a string (@todo)
+        if ($count === 'false') {
+            $count = false;
+        }
+
+        return [
+            'records' => $this->dataSource->getRecords(post('offset'), $count),
+            'count' => $this->dataSource->getCount()
+        ];
+    }
+
+    public function onServerSearchRecords()
+    {
+        // Disable asset broadcasting
+        $this->controller->flushAssets();
+
+        if ($this->isClientDataSource()) {
+            throw new SystemException('The Table widget is not configured to use the server data source.');
+        }
+
+        $count = post('count');
+
+        // Oddly, JS may pass false as a string (@todo)
+        if ($count === 'false') {
+            $count = false;
+        }
+
+        return [
+            'records' => $this->dataSource->searchRecords(post('query'), post('offset'), $count),
+            'count' => $this->dataSource->getCount()
+        ];
+    }
+
+    public function onServerCreateRecord()
+    {
+        if ($this->isClientDataSource()) {
+            throw new SystemException('The Table widget is not configured to use the server data source.');
+        }
+
+        $this->dataSource->createRecord(
+            post('recordData'),
+            post('placement'),
+            post('relativeToKey')
+        );
+
+        return $this->onServerGetRecords();
+    }
+
+    public function onServerUpdateRecord()
+    {
+        if ($this->isClientDataSource()) {
+            throw new SystemException('The Table widget is not configured to use the server data source.');
+        }
+
+        $this->dataSource->updateRecord(post('key'), post('recordData'));
+    }
+
+    public function onServerDeleteRecord()
+    {
+        if ($this->isClientDataSource()) {
+            throw new SystemException('The Table widget is not configured to use the server data source.');
+        }
+
+        $this->dataSource->deleteRecord(post('key'));
+
+        return $this->onServerGetRecords();
+    }
 
     public function onGetDropdownOptions()
     {
@@ -187,6 +284,23 @@ class Table extends WidgetBase
         $rowData = Input::get('rowData');
 
         $eventResults = $this->fireEvent('table.getDropdownOptions', [$columnName, $rowData]);
+
+        $options = [];
+        if (count($eventResults)) {
+            $options = $eventResults[0];
+        }
+
+        return [
+            'options' => $options
+        ];
+    }
+
+    public function onGetAutocompleteOptions()
+    {
+        $columnName = Input::get('column');
+        $rowData = Input::get('rowData');
+
+        $eventResults = $this->fireEvent('table.getAutocompleteOptions', [$columnName, $rowData]);
 
         $options = [];
         if (count($eventResults)) {

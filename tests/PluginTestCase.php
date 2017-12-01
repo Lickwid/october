@@ -49,15 +49,15 @@ abstract class PluginTestCase extends Illuminate\Foundation\Testing\TestCase
     public function setUp()
     {
         /*
+         * Force reload of October singletons
+         */
+        PluginManager::forgetInstance();
+        UpdateManager::forgetInstance();
+        
+        /*
          * Create application instance
          */
         parent::setUp();
-
-        /*
-         * Rebind Laravel container in October Singletons
-         */
-        UpdateManager::instance()->bindContainerObjects();
-        PluginManager::instance()->bindContainerObjects();
 
         /*
          * Ensure system is up to date
@@ -101,7 +101,7 @@ abstract class PluginTestCase extends Illuminate\Foundation\Testing\TestCase
     }
 
     /**
-     * Since the test environment has loaded all the test plugins 
+     * Since the test environment has loaded all the test plugins
      * natively, this method will ensure the desired plugin is
      * loaded in the system before proceeding to migrate it.
      * @return void
@@ -132,11 +132,6 @@ abstract class PluginTestCase extends Illuminate\Foundation\Testing\TestCase
         }
 
         /*
-         * Execute the command
-         */
-        Artisan::call('plugin:refresh', ['name' => $code]);
-
-        /*
          * Spin over dependencies and refresh them too
          */
         $this->pluginTestCaseLoadedPlugins[$code] = $plugin;
@@ -144,10 +139,30 @@ abstract class PluginTestCase extends Illuminate\Foundation\Testing\TestCase
         if (!empty($plugin->require)) {
             foreach ((array) $plugin->require as $dependency) {
 
-                if (isset($this->pluginTestCaseLoadedPlugins[$code])) continue;
+                if (isset($this->pluginTestCaseLoadedPlugins[$dependency])) continue;
 
                 $this->runPluginRefreshCommand($dependency);
             }
+        }
+
+        /*
+         * Execute the command
+         */
+        Artisan::call('plugin:refresh', ['name' => $code]);
+    }
+
+    /**
+     * Returns a plugin object from its code, useful for registering events, etc.
+     * @return PluginBase
+     */
+    protected function getPluginObject($code = null)
+    {
+        if ($code === null) {
+            $code = $this->guessPluginCodeFromTest();
+        }
+
+        if (isset($this->pluginTestCaseLoadedPlugins[$code])) {
+            return $this->pluginTestCaseLoadedPlugins[$code];
         }
     }
 
@@ -187,7 +202,7 @@ abstract class PluginTestCase extends Illuminate\Foundation\Testing\TestCase
     {
         $reflect = new ReflectionClass($this);
         $path = $reflect->getFilename();
-        $basePath = plugins_path();
+        $basePath = $this->app->pluginsPath();
 
         $result = false;
 

@@ -1,8 +1,11 @@
 <?php namespace Cms\Twig;
 
 use Event;
+use Twig_Source;
 use Twig_LoaderInterface;
-use Cms\Classes\CmsObject;
+use Cms\Contracts\CmsObject;
+use System\Twig\Loader as LoaderBase;
+use Cms\Classes\Partial as CmsPartial;
 
 /**
  * This class implements a Twig template loader for the CMS.
@@ -10,7 +13,7 @@ use Cms\Classes\CmsObject;
  * @package october\cms
  * @author Alexey Bobkov, Samuel Georges
  */
-class Loader implements Twig_LoaderInterface
+class Loader extends LoaderBase implements Twig_LoaderInterface
 {
     /**
      * @var \Cms\Classes\CmsCompoundObject A CMS object to load the template from.
@@ -18,8 +21,13 @@ class Loader implements Twig_LoaderInterface
     protected $obj;
 
     /**
+     * @var array Cache
+     */
+    protected $fallbackCache = [];
+
+    /**
      * Sets a CMS object to load the template from.
-     * @param \Cms\Classes\CmsObject $obj Specifies the CMS object.
+     * @param \Cms\Contracts\CmsObject $obj Specifies the CMS object.
      */
     public function setObject(CmsObject $obj)
     {
@@ -30,8 +38,12 @@ class Loader implements Twig_LoaderInterface
      * Returns the Twig content string.
      * This step is cached internally by Twig.
      */
-    public function getSource($name)
+    public function getSourceContext($name)
     {
+        if (!$this->validateCmsObject($name)) {
+            return parent::getSourceContext($name);
+        }
+
         $content = $this->obj->getTwigContent();
 
         /*
@@ -41,7 +53,7 @@ class Loader implements Twig_LoaderInterface
 
         Event::fire('cms.template.processTwigContent', [$this->obj, $dataHolder]);
 
-        return $dataHolder->content;
+        return new Twig_Source($dataHolder->content, $name);
     }
 
     /**
@@ -49,7 +61,11 @@ class Loader implements Twig_LoaderInterface
      */
     public function getCacheKey($name)
     {
-        return $this->obj->getFullPath();
+        if (!$this->validateCmsObject($name)) {
+            return parent::getCacheKey($name);
+        }
+
+        return $this->obj->getTwigCacheKey();
     }
 
     /**
@@ -57,6 +73,71 @@ class Loader implements Twig_LoaderInterface
      */
     public function isFresh($name, $time)
     {
-        return $this->obj->isLoadedFromCache();
+        if (!$this->validateCmsObject($name)) {
+            return parent::isFresh($name, $time);
+        }
+
+        return $this->obj->mtime <= $time;
+    }
+
+    /**
+     * Returns the file name of the loaded template.
+     */
+    public function getFilename($name)
+    {
+        if (!$this->validateCmsObject($name)) {
+            return parent::getFilename($name);
+        }
+
+        return $this->obj->getFilePath();
+    }
+
+    /**
+     * Checks that the template exists.
+     */
+    public function exists($name)
+    {
+        if (!$this->validateCmsObject($name)) {
+            return parent::exists($name);
+        }
+
+        return $this->obj->exists;
+    }
+
+    /**
+     * Internal method that checks if the template name matches
+     * the loaded object, with fallback support to partials.
+     *
+     * @return bool
+     */
+    protected function validateCmsObject($name)
+    {
+        if ($name == $this->obj->getFilePath()) {
+            return true;
+        }
+
+        if ($fallbackObj = $this->findFallbackObject($name)) {
+            $this->obj = $fallbackObj;
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Looks up a fallback CMS partial object.
+     * @return Cms\Classes\Partial
+     */
+    protected function findFallbackObject($name)
+    {
+        if (strpos($name, '::') !== false) {
+            return false;
+        }
+
+        if (array_key_exists($name, $this->fallbackCache)) {
+            return $this->fallbackCache[$name];
+        }
+
+        return $this->fallbackCache[$name] = CmsPartial::find($name);
     }
 }

@@ -30,6 +30,7 @@
         this.group = null // Group created by a grouped editor, for example by the set editor
         this.childInspector = null
         this.validationSet = null
+        this.disposed = false
 
         Base.call(this)
 
@@ -40,6 +41,8 @@
     BaseEditor.prototype.constructor = Base
 
     BaseEditor.prototype.dispose = function() {
+        this.disposed = true // After this point editors can't rely on any DOM references
+
         this.disposeValidation()
 
         if (this.childInspector) {
@@ -68,10 +71,22 @@
         return null
     }
 
+    BaseEditor.prototype.isDisposed = function() {
+        return this.disposed
+    }
+
     BaseEditor.prototype.registerHandlers = function() {
     }
 
     BaseEditor.prototype.onInspectorPropertyChanged = function(property, value) {
+    }
+
+    BaseEditor.prototype.notifyChildSurfacesPropertyChanged = function(property, value) {
+        if (!this.hasChildSurface()) {
+            return
+        }
+
+        this.childInspector.notifyEditorsPropertyChanged(property, value)
     }
 
     BaseEditor.prototype.focus = function() {
@@ -83,6 +98,10 @@
 
     BaseEditor.prototype.getRootSurface = function() {
         return this.inspector.getRootSurface()
+    }
+
+    BaseEditor.prototype.getPropertyPath = function() {
+        return this.inspector.getPropertyPath(this.propertyDefinition.property)
     }
 
     /**
@@ -104,6 +123,18 @@
         throw new Error(errorMessage + ' Property: ' + this.propertyDefinition.property)
     }
 
+    BaseEditor.prototype.getInspectableElement = function() {
+        return this.getRootSurface().getInspectableElement()
+    }
+
+    BaseEditor.prototype.isEmptyValue = function(value) {
+        return value === undefined
+            || value === null
+            || (typeof value == 'object' && $.isEmptyObject(value) )
+            || (typeof value == 'string' && $.trim(value).length === 0)
+            || (Object.prototype.toString.call(value) === '[object Array]' && value.length === 0)
+    }
+
     //
     // Validation
     //
@@ -120,7 +151,7 @@
         return this.inspector.getPropertyValue(this.propertyDefinition.property)
     }
 
-    BaseEditor.prototype.validate = function() {
+    BaseEditor.prototype.validate = function(silentMode) {
         var value = this.getValueToValidate()
 
         if (value === undefined) {
@@ -129,7 +160,9 @@
 
         var validationResult = this.validationSet.validate(value)
         if (validationResult !== null) {
-            $.oc.flashMsg({text: validationResult, 'class': 'error', 'interval': 5})
+            if (!silentMode) {
+                $.oc.flashMsg({text: validationResult, 'class': 'error', 'interval': 5})
+            }
             return false
         }
 

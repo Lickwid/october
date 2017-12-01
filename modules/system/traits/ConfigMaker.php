@@ -25,6 +25,9 @@ trait ConfigMaker
 
     /**
      * Reads the contents of the supplied file and applies it to this object.
+     * @param array $configFile
+     * @param array $requiredConfig
+     * @return array|stdClass
      */
     public function makeConfig($configFile = [], $requiredConfig = [])
     {
@@ -97,14 +100,14 @@ trait ConfigMaker
     }
 
     /**
-     * Makes a config object from an array, making the first level keys properties a new object. 
+     * Makes a config object from an array, making the first level keys properties a new object.
      * Property values are converted to camelCase and are not set if one already exists.
      * @param array $configArray Config array.
-     * @return stdObject The config object
+     * @return stdClass The config object
      */
     public function makeConfigFromArray($configArray = [])
     {
-        $object = new stdClass();
+        $object = new stdClass;
 
         if (!is_array($configArray)) {
             return $object;
@@ -120,7 +123,7 @@ trait ConfigMaker
 
     /**
      * Locates a file based on it's definition. If the file starts with
-     * an "at symbol", it will be returned in context of the application base path,
+     * the ~ symbol it will be returned in context of the application base path,
      * otherwise it will be returned in context of the config path.
      * @param string $fileName File to load.
      * @param mixed $configPath Explicitly define a config path.
@@ -149,11 +152,11 @@ trait ConfigMaker
         foreach ($configPath as $path) {
             $_fileName = $path . '/' . $fileName;
             if (File::isFile($_fileName)) {
-                break;
+                return $_fileName;
             }
         }
 
-        return $_fileName;
+        return $fileName;
     }
 
     /**
@@ -179,5 +182,21 @@ trait ConfigMaker
         $classFile = realpath(dirname(File::fromClass($class)));
         $guessedPath = $classFile ? $classFile . '/' . $classFolder . $suffix : null;
         return $guessedPath;
+    }
+
+    /**
+     * Merges two configuration sources, either prepared or not, and returns
+     * them as a single configuration object.
+     * @param mixed $configA
+     * @param mixed $configB
+     * @return stdClass The config object
+     */
+    public function mergeConfig($configA, $configB)
+    {
+        $configA = $this->makeConfig($configA);
+
+        $configB = $this->makeConfig($configB);
+
+        return (object) array_merge((array) $configA, (array) $configB);
     }
 }

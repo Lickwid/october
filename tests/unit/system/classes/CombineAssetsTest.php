@@ -3,7 +3,7 @@
 use Cms\Classes\Theme;
 use System\Classes\CombineAssets;
 
-class CombineAssetsTest extends TestCase 
+class CombineAssetsTest extends TestCase
 {
     public function setUp()
     {
@@ -121,7 +121,7 @@ class CombineAssetsTest extends TestCase
         $combiner = CombineAssets::instance();
         self::setProtectedProperty($combiner, 'localPath', $samplePath);
 
-        $value = self::callProtectedMethod($combiner, 'makeCacheId', [$sampleResources]);
+        $value = self::callProtectedMethod($combiner, 'getCacheKey', [$sampleResources]);
         $this->assertEquals(md5($samplePath.implode('|', $sampleResources)), $value);
     }
 

@@ -1,5 +1,6 @@
 <?php namespace System\Controllers;
 
+use App;
 use Str;
 use Lang;
 use File;
@@ -21,17 +22,32 @@ use Exception;
  */
 class EventLogs extends Controller
 {
+    /**
+     * @var array Extensions implemented by this controller.
+     */
     public $implement = [
-        'Backend.Behaviors.FormController',
-        'Backend.Behaviors.ListController'
+        \Backend\Behaviors\FormController::class,
+        \Backend\Behaviors\ListController::class
     ];
 
-    public $requiredPermissions = ['system.access_logs'];
-
+    /**
+     * @var array `FormController` configuration.
+     */
     public $formConfig = 'config_form.yaml';
 
+    /**
+     * @var array `ListController` configuration.
+     */
     public $listConfig = 'config_list.yaml';
 
+    /**
+     * @var array Permissions required to view this page.
+     */
+    public $requiredPermissions = ['system.access_logs'];
+
+    /**
+     * Constructor.
+     */
     public function __construct()
     {
         parent::__construct();
@@ -40,7 +56,12 @@ class EventLogs extends Controller
         SettingsManager::setContext('October.System', 'event_logs');
     }
 
-    public function onEmptyLog()
+    public function index_onRefresh()
+    {
+        return $this->listRefresh();
+    }
+
+    public function index_onEmptyLog()
     {
         EventLog::truncate();
         Flash::success(Lang::get('system::lang.event_log.empty_success'));
@@ -63,5 +84,18 @@ class EventLogs extends Controller
         }
 
         return $this->listRefresh();
+    }
+
+
+    public function preview($id)
+    {
+        $this->addCss('/modules/system/assets/css/eventlogs/exception-beautifier.css', 'core');
+        $this->addJs('/modules/system/assets/js/eventlogs/exception-beautifier.js', 'core');
+
+        if (in_array(App::environment(), ['dev', 'local'])) {
+            $this->addJs('/modules/system/assets/js/eventlogs/exception-beautifier.links.js', 'core');
+        }
+
+        return $this->asExtension('FormController')->preview($id);
     }
 }
